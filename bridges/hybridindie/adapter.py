@@ -37,12 +37,55 @@ from tools.schemas import (
     SettingsGetArgs,
     SettingsSetArgs,
     StopGameArgs,
+    AddTilesetCustomDataLayerArgs,
+    AddTilesetNavigationLayerArgs,
+    AddTilesetOcclusionLayerArgs,
+    AddTilesetPhysicsLayerArgs,
+    AddTilesetScenesCollectionSourceArgs,
+    AddTilesetTerrainArgs,
+    AddTilesetTerrainSetArgs,
+    ClearTileCollisionArgs,
+    CreateAlternativeTileArgs,
+    CreateSceneTileArgs,
+    CreateSpriteFramesArgs,
+    DebugBreakpointArgs,
+    DebugControlArgs,
+    DebugErrorArgs,
+    DebugProfilerArgs,
+    DebugStackArgs,
+    DebugStateArgs,
+    DebugStatusArgs,
+    DebugVisualsArgs,
+    GetTileDataArgs,
+    NodesCreateBatchArgs,
+    NodesEditBatchArgs,
+    ObserveArgs,
+    RuntimeGetPropertyArgs,
+    RuntimeNodeInspectArgs,
+    RuntimeSetPropertyArgs,
+    RuntimeTreeArgs,
+    SpatialObserveArgs,
+    SetTileAnimationArgs,
+    SetTileCollisionArgs,
+    SetTileConstantVelocityArgs,
+    SetTileCustomDataArgs,
+    SetTileNavigationArgs,
+    SetTileOcclusionArgs,
+    SetTileTerrainArgs,
     TilemapClearArgs,
     TilemapFillRectArgs,
     TilemapGetCellArgs,
     TilemapInspectArgs,
+    TilemapLayerSetKinematicArgs,
+    TilemapLayerSetNavigationArgs,
+    TilemapLayerSetPhysicsArgs,
     TilemapSetCellArgs,
+    TilemapSetCellsBatchArgs,
+    TilemapSetPatternArgs,
+    TilemapSetTerrainArgs,
     TilesetAddAtlasArgs,
+    TilesetAddPatternArgs,
+    TilesetAtlasInspectArgs,
     TilesetCreateArgs,
     TilesetCreateTileArgs,
     TilesetInspectArgs,
@@ -79,6 +122,7 @@ EXPECTED_CAPABILITIES: Mapping[str, bool] = {
     "documentation_search": False,
     "agent_undo": True,  # godot_undo always-on core
     "tilemap_editing": True,
+    "spatial_observation": True,
 }
 
 
@@ -988,27 +1032,471 @@ class HybridindieBridgeAdapter:
             change={"type": "tileset", "operation": "create_tile", **payload},
         )
 
+
     def tileset_inspect(self, args: TilesetInspectArgs) -> ToolResult:
-        gate = self._preflight(
-            "tileset_inspect",
-            required_toolsets=["inspection"],
-        )
+        gate = self._preflight("tileset_inspect")
         if gate is not None:
             return gate
-        if not args.node_path:
-            return self._error(
-                "tileset_inspect V1 requires node_path (TileMapLayer/TileMap); "
-                "no dedicated tileset dump MCP tool",
-                code="PARAM_ERROR",
-            )
-        tool = "godot_inspection_get_node_properties"
-        raw = self._call(tool, {"node_path": args.node_path})
-        err = self._mcp_error_result(raw, tool)
+        err = self._require_tileset_target(args.node_path, args.tileset_path, "tileset_inspect")
         if err is not None:
             return err
+        tool = "godot_tilemap_tileset_inspect"
+        payload = self._tileset_target_payload(args.node_path, args.tileset_path)
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def tileset_atlas_inspect(self, args: TilesetAtlasInspectArgs) -> ToolResult:
+        gate = self._preflight("tileset_atlas_inspect")
+        if gate is not None:
+            return gate
+        err = self._require_tileset_target(args.node_path, args.tileset_path, "tileset_atlas_inspect")
+        if err is not None:
+            return err
+        tool = "godot_tilemap_tileset_atlas_inspect"
+        payload = {
+            **self._tileset_target_payload(args.node_path, args.tileset_path),
+            "source_id": int(args.source_id),
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def get_tile_data(self, args: GetTileDataArgs) -> ToolResult:
+        gate = self._preflight("get_tile_data")
+        if gate is not None:
+            return gate
+        err = self._require_tileset_target(args.node_path, args.tileset_path, "get_tile_data")
+        if err is not None:
+            return err
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        tool = "godot_tilemap_get_tile_data"
+        payload = {
+            **self._tileset_target_payload(args.node_path, args.tileset_path),
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "alternative_tile": int(args.alternative_tile),
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def add_tileset_physics_layer(self, args: AddTilesetPhysicsLayerArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "add_tileset_physics_layer",
+            "godot_tilemap_add_tileset_physics_layer",
+            args.node_path,
+            args.tileset_path,
+            {
+                "collision_layer": int(args.collision_layer),
+                "collision_mask": int(args.collision_mask),
+            },
+        )
+
+    def set_tile_collision(self, args: SetTileCollisionArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        extra: dict[str, Any] = {
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "alternative_tile": int(args.alternative_tile),
+            "physics_layer": int(args.physics_layer),
+            "shape": args.shape,
+            "one_way": bool(args.one_way),
+            "one_way_margin": float(args.one_way_margin),
+        }
+        if args.points is not None:
+            extra["points"] = [list(p) for p in args.points]
+        return self._tileset_mutate(
+            "set_tile_collision",
+            "godot_tilemap_set_tile_collision",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def clear_tile_collision(self, args: ClearTileCollisionArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        return self._tileset_mutate(
+            "clear_tile_collision",
+            "godot_tilemap_clear_tile_collision",
+            args.node_path,
+            args.tileset_path,
+            {
+                "source_id": int(args.source_id),
+                "atlas_coords": [int(coords[0]), int(coords[1])],
+                "alternative_tile": int(args.alternative_tile),
+                "physics_layer": int(args.physics_layer),
+            },
+        )
+
+    def tilemap_layer_set_physics(self, args: TilemapLayerSetPhysicsArgs) -> ToolResult:
+        gate = self._preflight("tilemap_layer_set_physics")
+        if gate is not None:
+            return gate
+        tool = "godot_tilemap_layer_set_physics"
+        payload = {
+            "node_path": args.node_path,
+            "collision_enabled": bool(args.collision_enabled),
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
         return self._ok(
             self._as_mapping(raw),
-            evidence={"mcp_tool": tool, "node_path": args.node_path},
+            evidence={"mcp_tool": tool},
+            change={"type": "tilemap", "operation": "layer_set_physics", **payload},
+        )
+
+    def tilemap_set_cells_batch(self, args: TilemapSetCellsBatchArgs) -> ToolResult:
+        gate = self._preflight("tilemap_set_cells_batch")
+        if gate is not None:
+            return gate
+        cells = [dict(c) for c in args.cells]
+        tool = "godot_tilemap_set_cells_batch"
+        payload = {"node_path": args.node_path, "cells": cells, "layer": int(args.layer)}
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "tilemap", "operation": "set_cells_batch", "cells": len(cells)},
+        )
+
+    def add_tileset_custom_data_layer(self, args: AddTilesetCustomDataLayerArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "add_tileset_custom_data_layer",
+            "godot_tilemap_add_tileset_custom_data_layer",
+            args.node_path,
+            args.tileset_path,
+            {"name": args.name, "type": args.type},
+        )
+
+    def set_tile_custom_data(self, args: SetTileCustomDataArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        return self._tileset_mutate(
+            "set_tile_custom_data",
+            "godot_tilemap_set_tile_custom_data",
+            args.node_path,
+            args.tileset_path,
+            {
+                "source_id": int(args.source_id),
+                "atlas_coords": [int(coords[0]), int(coords[1])],
+                "alternative_tile": int(args.alternative_tile),
+                "name": args.name,
+                "value": args.value,
+            },
+        )
+
+    def add_tileset_terrain_set(self, args: AddTilesetTerrainSetArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "add_tileset_terrain_set",
+            "godot_tilemap_add_tileset_terrain_set",
+            args.node_path,
+            args.tileset_path,
+            {"mode": int(args.mode)},
+        )
+
+    def add_tileset_terrain(self, args: AddTilesetTerrainArgs) -> ToolResult:
+        extra: dict[str, Any] = {
+            "terrain_set": int(args.terrain_set),
+            "name": args.name,
+        }
+        if args.color is not None:
+            extra["color"] = list(args.color)
+        return self._tileset_mutate(
+            "add_tileset_terrain",
+            "godot_tilemap_add_tileset_terrain",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def set_tile_terrain(self, args: SetTileTerrainArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        return self._tileset_mutate(
+            "set_tile_terrain",
+            "godot_tilemap_set_tile_terrain",
+            args.node_path,
+            args.tileset_path,
+            {
+                "source_id": int(args.source_id),
+                "atlas_coords": [int(coords[0]), int(coords[1])],
+                "alternative_tile": int(args.alternative_tile),
+                "terrain_set": int(args.terrain_set),
+                "terrain": int(args.terrain),
+                "peering_bits": [dict(p) for p in (args.peering_bits or [])],
+            },
+        )
+
+    def tilemap_set_terrain(self, args: TilemapSetTerrainArgs) -> ToolResult:
+        gate = self._preflight("tilemap_set_terrain")
+        if gate is not None:
+            return gate
+        tool = "godot_tilemap_set_terrain"
+        payload = {
+            "node_path": args.node_path,
+            "cells": list(args.cells),
+            "terrain_set": int(args.terrain_set),
+            "terrain": int(args.terrain),
+            "mode": args.mode,
+            "ignore_empty_terrains": bool(args.ignore_empty_terrains),
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "tilemap", "operation": "set_terrain", **payload},
+        )
+
+    def tileset_add_pattern(self, args: TilesetAddPatternArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "tileset_add_pattern",
+            "godot_tilemap_tileset_add_pattern",
+            args.node_path,
+            args.tileset_path,
+            {"cells": [dict(c) for c in args.cells]},
+        )
+
+    def tilemap_set_pattern(self, args: TilemapSetPatternArgs) -> ToolResult:
+        gate = self._preflight("tilemap_set_pattern")
+        if gate is not None:
+            return gate
+        pos = list(args.position)
+        if len(pos) != 2:
+            return self._error("position must be [x, y]", code="PARAM_ERROR")
+        tool = "godot_tilemap_set_pattern"
+        payload = {
+            "node_path": args.node_path,
+            "pattern_index": int(args.pattern_index),
+            "position": [int(pos[0]), int(pos[1])],
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "tilemap", "operation": "set_pattern", **payload},
+        )
+
+    def create_alternative_tile(self, args: CreateAlternativeTileArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        extra: dict[str, Any] = {
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "alternative_tile_id": int(args.alternative_tile_id),
+        }
+        if args.flip_h is not None:
+            extra["flip_h"] = bool(args.flip_h)
+        if args.flip_v is not None:
+            extra["flip_v"] = bool(args.flip_v)
+        if args.transpose is not None:
+            extra["transpose"] = bool(args.transpose)
+        return self._tileset_mutate(
+            "create_alternative_tile",
+            "godot_tilemap_create_alternative_tile",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def set_tile_animation(self, args: SetTileAnimationArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        extra: dict[str, Any] = {
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "frames_count": int(args.frames_count),
+            "columns": int(args.columns),
+            "speed": float(args.speed),
+            "mode": int(args.mode),
+        }
+        if args.frame_duration is not None:
+            extra["frame_duration"] = float(args.frame_duration)
+        return self._tileset_mutate(
+            "set_tile_animation",
+            "godot_tilemap_set_tile_animation",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def add_tileset_navigation_layer(self, args: AddTilesetNavigationLayerArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "add_tileset_navigation_layer",
+            "godot_tilemap_add_tileset_navigation_layer",
+            args.node_path,
+            args.tileset_path,
+            {"layers": int(args.layers)},
+        )
+
+    def set_tile_navigation(self, args: SetTileNavigationArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        extra: dict[str, Any] = {
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "alternative_tile": int(args.alternative_tile),
+            "navigation_layer": int(args.navigation_layer),
+            "shape": args.shape,
+        }
+        if args.points is not None:
+            extra["points"] = [list(p) for p in args.points]
+        return self._tileset_mutate(
+            "set_tile_navigation",
+            "godot_tilemap_set_tile_navigation",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def tilemap_layer_set_navigation(self, args: TilemapLayerSetNavigationArgs) -> ToolResult:
+        gate = self._preflight("tilemap_layer_set_navigation")
+        if gate is not None:
+            return gate
+        tool = "godot_tilemap_layer_set_navigation"
+        payload = {
+            "node_path": args.node_path,
+            "navigation_enabled": bool(args.navigation_enabled),
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "tilemap", "operation": "layer_set_navigation", **payload},
+        )
+
+    def add_tileset_occlusion_layer(self, args: AddTilesetOcclusionLayerArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "add_tileset_occlusion_layer",
+            "godot_tilemap_add_tileset_occlusion_layer",
+            args.node_path,
+            args.tileset_path,
+            {
+                "light_mask": int(args.light_mask),
+                "sdf_collision": bool(args.sdf_collision),
+            },
+        )
+
+    def set_tile_occlusion(self, args: SetTileOcclusionArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        extra: dict[str, Any] = {
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "alternative_tile": int(args.alternative_tile),
+            "occlusion_layer": int(args.occlusion_layer),
+            "shape": args.shape,
+        }
+        if args.points is not None:
+            extra["points"] = [list(p) for p in args.points]
+        return self._tileset_mutate(
+            "set_tile_occlusion",
+            "godot_tilemap_set_tile_occlusion",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def add_tileset_scenes_collection_source(
+        self, args: AddTilesetScenesCollectionSourceArgs
+    ) -> ToolResult:
+        extra: dict[str, Any] = {}
+        if args.source_id is not None:
+            extra["source_id"] = int(args.source_id)
+        return self._tileset_mutate(
+            "add_tileset_scenes_collection_source",
+            "godot_tilemap_add_tileset_scenes_collection_source",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def create_scene_tile(self, args: CreateSceneTileArgs) -> ToolResult:
+        return self._tileset_mutate(
+            "create_scene_tile",
+            "godot_tilemap_create_scene_tile",
+            args.node_path,
+            args.tileset_path,
+            {
+                "source_id": int(args.source_id),
+                "scene_path": args.scene_path,
+                "scene_tile_id": int(args.scene_tile_id),
+            },
+        )
+
+    def set_tile_constant_velocity(self, args: SetTileConstantVelocityArgs) -> ToolResult:
+        coords = list(args.atlas_coords)
+        if len(coords) != 2:
+            return self._error("atlas_coords must be [x, y]", code="PARAM_ERROR")
+        vel = list(args.linear_velocity)
+        if len(vel) != 2:
+            return self._error("linear_velocity must be [x, y]", code="PARAM_ERROR")
+        extra: dict[str, Any] = {
+            "source_id": int(args.source_id),
+            "atlas_coords": [int(coords[0]), int(coords[1])],
+            "alternative_tile": int(args.alternative_tile),
+            "physics_layer": int(args.physics_layer),
+            "linear_velocity": [float(vel[0]), float(vel[1])],
+        }
+        if args.angular_velocity is not None:
+            extra["angular_velocity"] = float(args.angular_velocity)
+        return self._tileset_mutate(
+            "set_tile_constant_velocity",
+            "godot_tilemap_set_tile_constant_velocity",
+            args.node_path,
+            args.tileset_path,
+            extra,
+        )
+
+    def tilemap_layer_set_kinematic(self, args: TilemapLayerSetKinematicArgs) -> ToolResult:
+        gate = self._preflight("tilemap_layer_set_kinematic")
+        if gate is not None:
+            return gate
+        tool = "godot_tilemap_layer_set_kinematic"
+        payload = {
+            "node_path": args.node_path,
+            "use_kinematic_bodies": bool(args.use_kinematic_bodies),
+        }
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "tilemap", "operation": "layer_set_kinematic", **payload},
         )
 
     def tilemap_inspect(self, args: TilemapInspectArgs) -> ToolResult:
@@ -1034,8 +1522,6 @@ class HybridindieBridgeAdapter:
             data["used_count"] = used.get("count", len(used.get("cells", []) or []))
             evidence["mcp_tool"] = "godot_tilemap_get_used_cells"
         else:
-            # Lightweight count via used_cells without dumping into evidence-heavy paths
-            # when callers only need layer metadata — skip second call.
             data["used_cells_included"] = False
         return self._ok(data, evidence=evidence)
 
@@ -1128,6 +1614,440 @@ class HybridindieBridgeAdapter:
             self._as_mapping(raw),
             evidence={"mcp_tool": tool},
             change={"type": "tilemap", "operation": "clear", **payload},
+        )
+
+    def create_sprite_frames(self, args: CreateSpriteFramesArgs) -> ToolResult:
+        gate = self._preflight("create_sprite_frames")
+        if gate is not None:
+            return gate
+        size = list(args.frame_size)
+        if len(size) < 2:
+            return self._error("frame_size must be [w, h]", code="PARAM_ERROR")
+        tool = "godot_animation_create_sprite_frames"
+        payload: dict[str, Any] = {
+            "texture": args.texture,
+            "frame_size": [int(size[0]), int(size[1])],
+            "animations": dict(args.animations),
+        }
+        if args.save_path:
+            payload["save_path"] = args.save_path
+        if args.assign_to:
+            payload["assign_to"] = args.assign_to
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "sprite_frames", "operation": "create", **payload},
+        )
+
+    def nodes_create_batch(self, args: NodesCreateBatchArgs) -> ToolResult:
+        gate = self._preflight("nodes_create_batch")
+        if gate is not None:
+            return gate
+        if not args.nodes:
+            return self._error("'nodes' must be a non-empty array", code="PARAM_ERROR")
+        nodes: list[dict[str, Any]] = []
+        for i, spec in enumerate(args.nodes):
+            if not isinstance(spec, Mapping):
+                return self._error(f"nodes[{i}] must be an object", code="PARAM_ERROR")
+            node_type = spec.get("type") or spec.get("node_type")
+            node_name = spec.get("name") or spec.get("node_name")
+            parent = spec.get("parent") or spec.get("parent_path") or "."
+            if not node_type or not node_name:
+                return self._error(
+                    f"nodes[{i}] requires type and name",
+                    code="PARAM_ERROR",
+                )
+            entry: dict[str, Any] = {
+                "type": str(node_type),
+                "name": str(node_name),
+                "parent": str(parent),
+                "properties": dict(spec.get("properties") or {}),
+            }
+            if spec.get("script_path"):
+                entry["script_path"] = str(spec.get("script_path"))
+            nodes.append(entry)
+        tool = "godot_composite_nodes_create_batch"
+        payload = {"nodes": nodes, "save": bool(args.save)}
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "bulk", "operation": "nodes_create_batch", "count": len(nodes)},
+        )
+
+    def nodes_edit_batch(self, args: NodesEditBatchArgs) -> ToolResult:
+        gate = self._preflight("nodes_edit_batch")
+        if gate is not None:
+            return gate
+        if not args.operations and not args.edits:
+            return self._error(
+                "Provide non-empty 'operations' or 'edits'",
+                code="PARAM_ERROR",
+            )
+        tool = "godot_composite_nodes_edit_batch"
+        payload: dict[str, Any] = {"save": bool(args.save)}
+        if args.operations:
+            payload["operations"] = [dict(op) for op in args.operations]
+        if args.edits:
+            payload["edits"] = [dict(e) for e in args.edits]
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={
+                "type": "bulk",
+                "operation": "nodes_edit_batch",
+                "count": len(args.operations) or len(args.edits),
+            },
+        )
+
+    def spatial_observe(self, args: SpatialObserveArgs) -> ToolResult:
+        gate = self._preflight("spatial_observe")
+        if gate is not None:
+            return gate
+        tool = "godot_spatial_observe"
+        payload = {
+            "scope": args.scope,
+            "root": args.root,
+            "depth": int(args.depth),
+            "include": list(args.include),
+            "type_filter": list(args.type_filter),
+            "path_filter": args.path_filter,
+            "screenshot": bool(args.screenshot),
+        }
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def runtime_tree(self, args: RuntimeTreeArgs) -> ToolResult:
+        gate = self._preflight("runtime_tree")
+        if gate is not None:
+            return gate
+        tool = "godot_runtime_tree"
+        payload = {
+            "root": args.root,
+            "depth": int(args.depth),
+            "type_filter": list(args.type_filter),
+            "path_filter": args.path_filter,
+        }
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def runtime_node_inspect(self, args: RuntimeNodeInspectArgs) -> ToolResult:
+        gate = self._preflight("runtime_node_inspect")
+        if gate is not None:
+            return gate
+        tool = "godot_runtime_node_inspect"
+        payload = {"path": args.path, "include": list(args.include)}
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def runtime_get_property(self, args: RuntimeGetPropertyArgs) -> ToolResult:
+        gate = self._preflight("runtime_get_property")
+        if gate is not None:
+            return gate
+        tool = "godot_runtime_read_property"
+        payload = {"node_path": args.node_path, "property": args.property_name}
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def runtime_set_property(self, args: RuntimeSetPropertyArgs) -> ToolResult:
+        gate = self._preflight("runtime_set_property")
+        if gate is not None:
+            return gate
+        tool = "godot_runtime_write_property"
+        payload = {
+            "node_path": args.node_path,
+            "property": args.property_name,
+            "value": args.value,
+        }
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change=payload,
+        )
+
+    def debug_status(self, args: DebugStatusArgs) -> ToolResult:
+        gate = self._preflight("debug_status")
+        if gate is not None:
+            return gate
+        tool = "godot_debugger_status"
+        payload: dict[str, Any] = {}
+        if args.session_id is not None:
+            payload["session_id"] = int(args.session_id)
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def debug_control(self, args: DebugControlArgs) -> ToolResult:
+        gate = self._preflight("debug_control")
+        if gate is not None:
+            return gate
+        op = (args.operation or "").strip().lower()
+        mapping = {
+            "break": "godot_debugger_force_break",
+            "force_break": "godot_debugger_force_break",
+            "continue": "godot_debugger_continue_execution",
+            "step_over": "godot_debugger_step_over",
+            "step_into": "godot_debugger_step_into",
+            "step_out": "godot_debugger_step_out",
+        }
+        tool = mapping.get(op)
+        if not tool:
+            return self._error(f"unsupported debug_control operation: {op!r}", code="PARAM_ERROR")
+        raw = self._call(tool, {})
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool, "operation": op},
+        )
+
+    def debug_breakpoint(self, args: DebugBreakpointArgs) -> ToolResult:
+        gate = self._preflight("debug_breakpoint")
+        if gate is not None:
+            return gate
+        op = (args.operation or "").strip().lower()
+        if op == "set":
+            tool = "godot_debugger_set_breakpoint"
+            payload = {"path": args.file, "line": int(args.line)}
+        elif op == "remove":
+            tool = "godot_debugger_remove_breakpoint"
+            payload = {"path": args.file, "line": int(args.line)}
+        elif op == "clear":
+            tool = "godot_debugger_clear_breakpoints"
+            payload = {}
+        elif op == "list":
+            tool = "godot_debugger_list_breakpoints"
+            payload = {}
+        else:
+            return self._error(f"unsupported debug_breakpoint operation: {op!r}", code="PARAM_ERROR")
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool, "operation": op})
+
+    def debug_stack(self, args: DebugStackArgs) -> ToolResult:
+        gate = self._preflight("debug_stack")
+        if gate is not None:
+            return gate
+        tool = "godot_debugger_get_stack_frames"
+        raw = self._call(tool, {})
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def debug_error(self, args: DebugErrorArgs) -> ToolResult:
+        gate = self._preflight("debug_error")
+        if gate is not None:
+            return gate
+        tool = "godot_debugger_error"
+        payload: dict[str, Any] = {}
+        if args.session_id is not None:
+            payload["session_id"] = int(args.session_id)
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def debug_state(self, args: DebugStateArgs) -> ToolResult:
+        gate = self._preflight("debug_state")
+        if gate is not None:
+            return gate
+        err_raw = self._call("godot_debugger_error", {})
+        err = self._mcp_error_result(err_raw, "godot_debugger_error")
+        if err is not None:
+            return err
+        vars_raw = self._call(
+            "godot_debugger_get_frame_variables", {"frame": int(args.frame)}
+        )
+        verr = self._mcp_error_result(vars_raw, "godot_debugger_get_frame_variables")
+        if verr is not None:
+            return verr
+        data = {
+            "error": self._as_mapping(err_raw),
+            "variables": self._as_mapping(vars_raw),
+            "frame": int(args.frame),
+        }
+        return self._ok(data, evidence={"mcp_tool": "godot_debugger_get_frame_variables"})
+
+    def debug_visuals(self, args: DebugVisualsArgs) -> ToolResult:
+        gate = self._preflight("debug_visuals")
+        if gate is not None:
+            return gate
+        tool = "godot_debugger_visuals"
+        payload: dict[str, Any] = {}
+        if args.collision_shapes is not None:
+            payload["collision_shapes"] = bool(args.collision_shapes)
+        if args.navigation is not None:
+            payload["navigation"] = bool(args.navigation)
+        raw = self._call(tool, payload)
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        return self._ok(self._as_mapping(raw), evidence={"mcp_tool": tool})
+
+    def debug_profiler(self, args: DebugProfilerArgs) -> ToolResult:
+        gate = self._preflight("debug_profiler")
+        if gate is not None:
+            return gate
+        # Inspect-first: map to live performance monitors.
+        tool = "godot_profiling_get_performance_monitors"
+        raw = self._call(tool, {})
+        err = self._mcp_error_result(raw, tool)
+        if err is not None:
+            return err
+        data = self._as_mapping(raw)
+        data["operation"] = args.operation
+        return self._ok(data, evidence={"mcp_tool": tool})
+
+    def observe(self, args: ObserveArgs) -> ToolResult:
+        """Compose diagnostics → tree/node → spatial → debug → screenshot last."""
+        gate = self._preflight("observe")
+        if gate is not None:
+            return gate
+        include = {str(x) for x in args.include}
+        evidence: dict[str, Any] = {"composed": []}
+        data: dict[str, Any] = {"scope": args.scope, "include": sorted(include)}
+
+        if "diagnostics" in include or "runtime" in include:
+            out = self.observe_runtime(
+                ObserveRuntimeArgs(include_errors=True, node_path=None, properties=())
+            )
+            if not out.ok and "diagnostics" in include:
+                return out
+            data["diagnostics"] = out.data
+            evidence["composed"].append("observe_runtime")
+
+        if args.scope == "runtime" and ("scene" in include or "runtime" in include):
+            if args.nodes:
+                nodes_out = []
+                for path in args.nodes:
+                    ni = self.runtime_node_inspect(
+                        RuntimeNodeInspectArgs(path=path)
+                    )
+                    if not ni.ok:
+                        return ni
+                    nodes_out.append(ni.data)
+                data["nodes"] = nodes_out
+                evidence["composed"].append("runtime_node_inspect")
+            else:
+                tree = self.runtime_tree(RuntimeTreeArgs(root=args.root if args.root.startswith("/") else "/root", depth=args.depth))
+                if not tree.ok:
+                    return tree
+                data["tree"] = tree.data
+                evidence["composed"].append("runtime_tree")
+
+        if "spatial" in include:
+            spat = self.spatial_observe(
+                SpatialObserveArgs(
+                    scope=args.scope,
+                    root=args.root if args.scope == "editor" else (args.root if args.root.startswith("/") else "/root"),
+                    depth=args.depth,
+                    include=("transform", "bounds", "collision", "runtime"),
+                )
+            )
+            if not spat.ok:
+                return spat
+            data["spatial"] = spat.data
+            evidence["composed"].append("spatial_observe")
+
+        if "debug" in include:
+            st = self.debug_status(DebugStatusArgs())
+            if st.ok:
+                data["debug"] = st.data
+                evidence["composed"].append("debug_status")
+                if bool(st.data.get("breaked")):
+                    de = self.debug_error(DebugErrorArgs())
+                    if de.ok:
+                        data["debug_error"] = de.data
+                        evidence["composed"].append("debug_error")
+
+        if "screenshot" in include:
+            shot = self.capture_viewport(CaptureViewportArgs())
+            if shot.ok:
+                data["screenshot"] = shot.data
+                evidence["composed"].append("capture_viewport")
+
+        return self._ok(data, evidence=evidence)
+
+    def _tileset_target_payload(
+        self, node_path: Optional[str], tileset_path: Optional[str]
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if node_path:
+            payload["node_path"] = node_path
+        if tileset_path:
+            payload["tileset_path"] = tileset_path
+        return payload
+
+    def _require_tileset_target(
+        self,
+        node_path: Optional[str],
+        tileset_path: Optional[str],
+        op: str,
+    ) -> Optional[ToolResult]:
+        if bool(node_path) == bool(tileset_path):
+            return self._error(
+                f"{op} requires exactly one of node_path or tileset_path",
+                code="PARAM_ERROR",
+            )
+        return None
+
+    def _tileset_mutate(
+        self,
+        abstract: str,
+        tool: str,
+        node_path: Optional[str],
+        tileset_path: Optional[str],
+        extra: Mapping[str, Any],
+    ) -> ToolResult:
+        gate = self._preflight(abstract)
+        if gate is not None:
+            return gate
+        err = self._require_tileset_target(node_path, tileset_path, abstract)
+        if err is not None:
+            return err
+        payload = {**self._tileset_target_payload(node_path, tileset_path), **dict(extra)}
+        raw = self._call(tool, payload)
+        mcp_err = self._mcp_error_result(raw, tool)
+        if mcp_err is not None:
+            return mcp_err
+        return self._ok(
+            self._as_mapping(raw),
+            evidence={"mcp_tool": tool},
+            change={"type": "tileset", "operation": abstract, **payload},
         )
 
     # --- internals ---------------------------------------------------------

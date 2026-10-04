@@ -32,6 +32,14 @@ var _read_property: Variant = null  # last godot_mcp:read_property one-shot repl
 var _read_property_pending := "__none__"  # request_id of the in-flight one-shot read (#571)
 var _ui_elements: Variant = null  # last godot_mcp:ui_elements payload (#35)
 var _ui_pending := "__none__"  # request_id of the in-flight find_ui request (#35)
+var _spatial_observe: Variant = null  # last godot_mcp:spatial_observe payload
+var _spatial_pending := "__none__"
+var _runtime_node_inspect: Variant = null
+var _runtime_node_pending := "__none__"
+var _runtime_tree: Variant = null
+var _runtime_tree_pending := "__none__"
+var _last_break_reason := "unknown"
+var _last_error_message := ""
 var _recorded_input: Variant = null  # last godot_mcp:recorded_input payload (#68)
 var _performance: Variant = null  # last godot_mcp:performance payload (#38)
 var _game_frame: Variant = null  # last godot_mcp:game_frame payload (#446)
@@ -48,7 +56,9 @@ var _frame_vars_globals: Array = []
 
 
 ## Debugger protocol capture names we claim so _capture receives raw messages.
-const _DEBUGGER_CAPTURES := ["stack_dump", "evaluation_return", "stack_frame_vars", "stack_frame_var"]
+const _DEBUGGER_CAPTURES := [
+	"stack_dump", "evaluation_return", "stack_frame_vars", "stack_frame_var", "error"
+]
 
 
 func _has_capture(capture: String) -> bool:
@@ -100,6 +110,27 @@ func _capture(message: String, data: Array, session_id: int) -> bool:
 				if pending_scan != "__none__" and str((scan as Dictionary).get("request_id", "")) == pending_scan:
 					_ui_elements = scan
 			return true
+		"godot_mcp:spatial_observe":
+			var spat: Variant = data[0] if not data.is_empty() else null
+			if spat is Dictionary:
+				if _spatial_pending != "__none__" and str((spat as Dictionary).get("request_id", "")) == _spatial_pending:
+					_spatial_observe = spat
+			return true
+		"godot_mcp:runtime_node_inspect":
+			var insp: Variant = data[0] if not data.is_empty() else null
+			if insp is Dictionary:
+				if _runtime_node_pending != "__none__" and str((insp as Dictionary).get("request_id", "")) == _runtime_node_pending:
+					_runtime_node_inspect = insp
+			return true
+		"godot_mcp:runtime_tree":
+			var rtree: Variant = data[0] if not data.is_empty() else null
+			if rtree is Dictionary:
+				if _runtime_tree_pending != "__none__" and str((rtree as Dictionary).get("request_id", "")) == _runtime_tree_pending:
+					_runtime_tree = rtree
+			return true
+		"godot_mcp:write_property":
+			# Reply cached on read_property slot pattern via dedicated field if needed later.
+			return true
 		"godot_mcp:recorded_input":
 			_recorded_input = data[0] if not data.is_empty() else null
 			return true
@@ -115,6 +146,14 @@ func _capture(message: String, data: Array, session_id: int) -> bool:
 		# Tier 2 debugger: raw Godot debugger protocol replies (issue #110)
 		"stack_dump":
 			_stack_frames = data[0] if not data.is_empty() else null
+			if _last_break_reason == "unknown":
+				_last_break_reason = "breakpoint"
+			return true
+		"error":
+			# Godot debugger protocol error stop — capture message for debug_error.
+			if not data.is_empty():
+				_last_error_message = str(data[0]) if data.size() == 1 else str(data)
+				_last_break_reason = "exception"
 			return true
 		"evaluation_return":
 			_evaluation_result = data[0] if not data.is_empty() else null
@@ -339,6 +378,57 @@ func get_pending_ui_request() -> String:
 func begin_ui_request(request_id: String) -> void:
 	_ui_pending = request_id
 	_ui_elements = null
+
+
+func get_spatial_observe() -> Variant:
+	return _spatial_observe
+
+
+func get_pending_spatial_request() -> String:
+	return _spatial_pending
+
+
+func begin_spatial_request(request_id: String) -> void:
+	_spatial_pending = request_id
+	_spatial_observe = null
+
+
+func get_runtime_node_inspect() -> Variant:
+	return _runtime_node_inspect
+
+
+func get_pending_runtime_node_request() -> String:
+	return _runtime_node_pending
+
+
+func begin_runtime_node_request(request_id: String) -> void:
+	_runtime_node_pending = request_id
+	_runtime_node_inspect = null
+
+
+func get_runtime_tree() -> Variant:
+	return _runtime_tree
+
+
+func get_pending_runtime_tree_request() -> String:
+	return _runtime_tree_pending
+
+
+func begin_runtime_tree_request(request_id: String) -> void:
+	_runtime_tree_pending = request_id
+	_runtime_tree = null
+
+
+func mark_force_break_reason() -> void:
+	_last_break_reason = "force_break"
+
+
+func get_break_reason() -> String:
+	return _last_break_reason
+
+
+func get_last_error_message() -> String:
+	return _last_error_message
 
 
 func get_recorded_input() -> Variant:

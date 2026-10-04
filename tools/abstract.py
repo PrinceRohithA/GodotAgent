@@ -10,15 +10,43 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from tools.schemas import (
+    AddTilesetCustomDataLayerArgs,
+    AddTilesetNavigationLayerArgs,
+    AddTilesetOcclusionLayerArgs,
+    AddTilesetPhysicsLayerArgs,
+    AddTilesetScenesCollectionSourceArgs,
+    AddTilesetTerrainArgs,
+    AddTilesetTerrainSetArgs,
     AnimationEditArgs,
     AnimationInspectArgs,
     AnimationTreeEditArgs,
     AnimationTreeInspectArgs,
     AttachScriptArgs,
     CaptureViewportArgs,
+    ClearTileCollisionArgs,
+    CreateAlternativeTileArgs,
     CreateSceneArgs,
+    CreateSceneTileArgs,
+    CreateSpriteFramesArgs,
+    DebugBreakpointArgs,
+    DebugControlArgs,
+    DebugErrorArgs,
+    DebugProfilerArgs,
+    DebugStackArgs,
+    DebugStateArgs,
+    DebugStatusArgs,
+    DebugVisualsArgs,
     EditNodeArgs,
+    NodesCreateBatchArgs,
+    NodesEditBatchArgs,
+    ObserveArgs,
+    RuntimeGetPropertyArgs,
+    RuntimeNodeInspectArgs,
+    RuntimeSetPropertyArgs,
+    RuntimeTreeArgs,
+    SpatialObserveArgs,
     GetDiagnosticsArgs,
+    GetTileDataArgs,
     InspectNodeArgs,
     InspectProjectArgs,
     InspectSceneArgs,
@@ -30,6 +58,13 @@ from tools.schemas import (
     RunGameArgs,
     SaveSceneArgs,
     SetPropertyArgs,
+    SetTileAnimationArgs,
+    SetTileCollisionArgs,
+    SetTileConstantVelocityArgs,
+    SetTileCustomDataArgs,
+    SetTileNavigationArgs,
+    SetTileOcclusionArgs,
+    SetTileTerrainArgs,
     SettingsGetArgs,
     SettingsSetArgs,
     StopGameArgs,
@@ -37,8 +72,16 @@ from tools.schemas import (
     TilemapFillRectArgs,
     TilemapGetCellArgs,
     TilemapInspectArgs,
+    TilemapLayerSetKinematicArgs,
+    TilemapLayerSetNavigationArgs,
+    TilemapLayerSetPhysicsArgs,
     TilemapSetCellArgs,
+    TilemapSetCellsBatchArgs,
+    TilemapSetPatternArgs,
+    TilemapSetTerrainArgs,
     TilesetAddAtlasArgs,
+    TilesetAddPatternArgs,
+    TilesetAtlasInspectArgs,
     TilesetCreateArgs,
     TilesetCreateTileArgs,
     TilesetInspectArgs,
@@ -93,6 +136,46 @@ class AbstractGodotTools(Protocol):
 
     def animation_tree_edit(self, args: AnimationTreeEditArgs) -> ToolResult: ...
 
+    def create_sprite_frames(self, args: CreateSpriteFramesArgs) -> ToolResult: ...
+
+    # --- Bulk / composite authoring ---
+
+    def nodes_create_batch(self, args: NodesCreateBatchArgs) -> ToolResult: ...
+
+    def nodes_edit_batch(self, args: NodesEditBatchArgs) -> ToolResult: ...
+
+    # --- Spatial / unified observe ---
+
+    def spatial_observe(self, args: SpatialObserveArgs) -> ToolResult: ...
+
+    def observe(self, args: ObserveArgs) -> ToolResult: ...
+
+    def runtime_tree(self, args: RuntimeTreeArgs) -> ToolResult: ...
+
+    def runtime_node_inspect(self, args: RuntimeNodeInspectArgs) -> ToolResult: ...
+
+    def runtime_get_property(self, args: RuntimeGetPropertyArgs) -> ToolResult: ...
+
+    def runtime_set_property(self, args: RuntimeSetPropertyArgs) -> ToolResult: ...
+
+    # --- Debugger ---
+
+    def debug_status(self, args: DebugStatusArgs) -> ToolResult: ...
+
+    def debug_control(self, args: DebugControlArgs) -> ToolResult: ...
+
+    def debug_breakpoint(self, args: DebugBreakpointArgs) -> ToolResult: ...
+
+    def debug_stack(self, args: DebugStackArgs) -> ToolResult: ...
+
+    def debug_error(self, args: DebugErrorArgs) -> ToolResult: ...
+
+    def debug_state(self, args: DebugStateArgs) -> ToolResult: ...
+
+    def debug_visuals(self, args: DebugVisualsArgs) -> ToolResult: ...
+
+    def debug_profiler(self, args: DebugProfilerArgs) -> ToolResult: ...
+
     # --- TileSet / TileMap (TileMapLayer-first) ---
 
     def tileset_create(self, args: TilesetCreateArgs) -> ToolResult: ...
@@ -102,6 +185,60 @@ class AbstractGodotTools(Protocol):
     def tileset_create_tile(self, args: TilesetCreateTileArgs) -> ToolResult: ...
 
     def tileset_inspect(self, args: TilesetInspectArgs) -> ToolResult: ...
+
+    def tileset_atlas_inspect(self, args: TilesetAtlasInspectArgs) -> ToolResult: ...
+
+    def get_tile_data(self, args: GetTileDataArgs) -> ToolResult: ...
+
+    def add_tileset_physics_layer(self, args: AddTilesetPhysicsLayerArgs) -> ToolResult: ...
+
+    def set_tile_collision(self, args: SetTileCollisionArgs) -> ToolResult: ...
+
+    def clear_tile_collision(self, args: ClearTileCollisionArgs) -> ToolResult: ...
+
+    def tilemap_layer_set_physics(self, args: TilemapLayerSetPhysicsArgs) -> ToolResult: ...
+
+    def tilemap_set_cells_batch(self, args: TilemapSetCellsBatchArgs) -> ToolResult: ...
+
+    def add_tileset_custom_data_layer(self, args: AddTilesetCustomDataLayerArgs) -> ToolResult: ...
+
+    def set_tile_custom_data(self, args: SetTileCustomDataArgs) -> ToolResult: ...
+
+    def add_tileset_terrain_set(self, args: AddTilesetTerrainSetArgs) -> ToolResult: ...
+
+    def add_tileset_terrain(self, args: AddTilesetTerrainArgs) -> ToolResult: ...
+
+    def set_tile_terrain(self, args: SetTileTerrainArgs) -> ToolResult: ...
+
+    def tilemap_set_terrain(self, args: TilemapSetTerrainArgs) -> ToolResult: ...
+
+    def tileset_add_pattern(self, args: TilesetAddPatternArgs) -> ToolResult: ...
+
+    def tilemap_set_pattern(self, args: TilemapSetPatternArgs) -> ToolResult: ...
+
+    def create_alternative_tile(self, args: CreateAlternativeTileArgs) -> ToolResult: ...
+
+    def set_tile_animation(self, args: SetTileAnimationArgs) -> ToolResult: ...
+
+    def add_tileset_navigation_layer(self, args: AddTilesetNavigationLayerArgs) -> ToolResult: ...
+
+    def set_tile_navigation(self, args: SetTileNavigationArgs) -> ToolResult: ...
+
+    def tilemap_layer_set_navigation(self, args: TilemapLayerSetNavigationArgs) -> ToolResult: ...
+
+    def add_tileset_occlusion_layer(self, args: AddTilesetOcclusionLayerArgs) -> ToolResult: ...
+
+    def set_tile_occlusion(self, args: SetTileOcclusionArgs) -> ToolResult: ...
+
+    def add_tileset_scenes_collection_source(
+        self, args: AddTilesetScenesCollectionSourceArgs
+    ) -> ToolResult: ...
+
+    def create_scene_tile(self, args: CreateSceneTileArgs) -> ToolResult: ...
+
+    def set_tile_constant_velocity(self, args: SetTileConstantVelocityArgs) -> ToolResult: ...
+
+    def tilemap_layer_set_kinematic(self, args: TilemapLayerSetKinematicArgs) -> ToolResult: ...
 
     def tilemap_inspect(self, args: TilemapInspectArgs) -> ToolResult: ...
 

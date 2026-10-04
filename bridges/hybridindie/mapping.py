@@ -32,6 +32,8 @@ V1_DEFAULT_TOOLSETS: tuple[str, ...] = (
     "project",
     "resources_edit",
     "composite",
+    "spatial",
+    "profiling",
 )
 
 # Treated as always available by the adapter once the server is up.
@@ -226,6 +228,117 @@ ABSTRACT_TO_MCP: Mapping[str, McpMapping] = {
             "Requires AnimationNodeStateMachine or BlendTree root as documented."
         ),
     ),
+    "create_sprite_frames": McpMapping(
+        abstract_method="create_sprite_frames",
+        mcp_tools=("godot_animation_create_sprite_frames",),
+        toolsets=frozenset({"animation"}),
+        notes="Row or explicit frames[]; optional save_path + assign_to.",
+    ),
+    "nodes_create_batch": McpMapping(
+        abstract_method="nodes_create_batch",
+        mcp_tools=("godot_composite_nodes_create_batch",),
+        toolsets=frozenset({"composite"}),
+        notes="Heterogeneous create+props; transactional validate→commit.",
+    ),
+    "nodes_edit_batch": McpMapping(
+        abstract_method="nodes_edit_batch",
+        mcp_tools=("godot_composite_nodes_edit_batch",),
+        toolsets=frozenset({"composite"}),
+        notes="operations[{path,property,value}] or legacy edits[].",
+    ),
+    "spatial_observe": McpMapping(
+        abstract_method="spatial_observe",
+        mcp_tools=("godot_spatial_observe",),
+        toolsets=frozenset({"spatial"}),
+        notes="Editor or runtime SpatialObject snapshot; geometry type-sourced.",
+    ),
+    "observe": McpMapping(
+        abstract_method="observe",
+        mcp_tools=(
+            "godot_runtime_get_game_output",
+            "godot_runtime_tree",
+            "godot_spatial_observe",
+            "godot_debugger_status",
+            "godot_runtime_capture_game_screenshot",
+        ),
+        toolsets=frozenset({"spatial", "runtime", "debugger"}),
+        notes="Abstract composition only — no mega MCP tool.",
+    ),
+    "runtime_tree": McpMapping(
+        abstract_method="runtime_tree",
+        mcp_tools=("godot_runtime_tree",),
+        toolsets=frozenset({"runtime"}),
+    ),
+    "runtime_node_inspect": McpMapping(
+        abstract_method="runtime_node_inspect",
+        mcp_tools=("godot_runtime_node_inspect",),
+        toolsets=frozenset({"runtime"}),
+    ),
+    "runtime_get_property": McpMapping(
+        abstract_method="runtime_get_property",
+        mcp_tools=("godot_runtime_read_property",),
+        toolsets=frozenset({"runtime"}),
+    ),
+    "runtime_set_property": McpMapping(
+        abstract_method="runtime_set_property",
+        mcp_tools=("godot_runtime_write_property",),
+        toolsets=frozenset({"runtime"}),
+        notes="Allowlisted P1 runtime mutation.",
+    ),
+    "debug_status": McpMapping(
+        abstract_method="debug_status",
+        mcp_tools=("godot_debugger_status",),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_control": McpMapping(
+        abstract_method="debug_control",
+        mcp_tools=(
+            "godot_debugger_force_break",
+            "godot_debugger_continue_execution",
+            "godot_debugger_step_into",
+            "godot_debugger_step_over",
+            "godot_debugger_step_out",
+        ),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_breakpoint": McpMapping(
+        abstract_method="debug_breakpoint",
+        mcp_tools=(
+            "godot_debugger_set_breakpoint",
+            "godot_debugger_remove_breakpoint",
+            "godot_debugger_clear_breakpoints",
+            "godot_debugger_list_breakpoints",
+        ),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_stack": McpMapping(
+        abstract_method="debug_stack",
+        mcp_tools=("godot_debugger_get_stack_frames",),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_error": McpMapping(
+        abstract_method="debug_error",
+        mcp_tools=("godot_debugger_error",),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_state": McpMapping(
+        abstract_method="debug_state",
+        mcp_tools=(
+            "godot_debugger_error",
+            "godot_debugger_get_frame_variables",
+        ),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_visuals": McpMapping(
+        abstract_method="debug_visuals",
+        mcp_tools=("godot_debugger_visuals",),
+        toolsets=frozenset({"debugger"}),
+    ),
+    "debug_profiler": McpMapping(
+        abstract_method="debug_profiler",
+        mcp_tools=("godot_profiling_get_performance_monitors",),
+        toolsets=frozenset({"profiling"}),
+    ),
     "run_game": McpMapping(
         abstract_method="run_game",
         mcp_tools=("godot_runtime_play_scene",),
@@ -345,12 +458,142 @@ ABSTRACT_TO_MCP: Mapping[str, McpMapping] = {
     ),
     "tileset_inspect": McpMapping(
         abstract_method="tileset_inspect",
-        mcp_tools=("godot_inspection_get_node_properties",),
-        toolsets=frozenset({"inspection", "tilemap"}),
-        notes=(
-            "No dedicated tileset dump tool — inspect TileMapLayer tile_set via node properties "
-            "when node_path is set."
-        ),
+        mcp_tools=("godot_tilemap_tileset_inspect",),
+        toolsets=frozenset({"tilemap"}),
+        notes="Sources, physics/custom/terrain/nav/occlusion layers, patterns.",
+    ),
+    "tileset_atlas_inspect": McpMapping(
+        abstract_method="tileset_atlas_inspect",
+        mcp_tools=("godot_tilemap_tileset_atlas_inspect",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "get_tile_data": McpMapping(
+        abstract_method="get_tile_data",
+        mcp_tools=("godot_tilemap_get_tile_data",),
+        toolsets=frozenset({"tilemap"}),
+        notes="Required VERIFY primitive for collision/custom/terrain.",
+    ),
+    "add_tileset_physics_layer": McpMapping(
+        abstract_method="add_tileset_physics_layer",
+        mcp_tools=("godot_tilemap_add_tileset_physics_layer",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_collision": McpMapping(
+        abstract_method="set_tile_collision",
+        mcp_tools=("godot_tilemap_set_tile_collision",),
+        toolsets=frozenset({"tilemap"}),
+        notes="full_rect → centered PackedVector2Array on TileData.",
+    ),
+    "clear_tile_collision": McpMapping(
+        abstract_method="clear_tile_collision",
+        mcp_tools=("godot_tilemap_clear_tile_collision",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "tilemap_layer_set_physics": McpMapping(
+        abstract_method="tilemap_layer_set_physics",
+        mcp_tools=("godot_tilemap_layer_set_physics",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "tilemap_set_cells_batch": McpMapping(
+        abstract_method="tilemap_set_cells_batch",
+        mcp_tools=("godot_tilemap_set_cells_batch",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "add_tileset_custom_data_layer": McpMapping(
+        abstract_method="add_tileset_custom_data_layer",
+        mcp_tools=("godot_tilemap_add_tileset_custom_data_layer",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_custom_data": McpMapping(
+        abstract_method="set_tile_custom_data",
+        mcp_tools=("godot_tilemap_set_tile_custom_data",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "add_tileset_terrain_set": McpMapping(
+        abstract_method="add_tileset_terrain_set",
+        mcp_tools=("godot_tilemap_add_tileset_terrain_set",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "add_tileset_terrain": McpMapping(
+        abstract_method="add_tileset_terrain",
+        mcp_tools=("godot_tilemap_add_tileset_terrain",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_terrain": McpMapping(
+        abstract_method="set_tile_terrain",
+        mcp_tools=("godot_tilemap_set_tile_terrain",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "tilemap_set_terrain": McpMapping(
+        abstract_method="tilemap_set_terrain",
+        mcp_tools=("godot_tilemap_set_terrain",),
+        toolsets=frozenset({"tilemap"}),
+        notes="Fails TERRAIN_NOT_CONFIGURED if TileSet terrain missing.",
+    ),
+    "tileset_add_pattern": McpMapping(
+        abstract_method="tileset_add_pattern",
+        mcp_tools=("godot_tilemap_tileset_add_pattern",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "tilemap_set_pattern": McpMapping(
+        abstract_method="tilemap_set_pattern",
+        mcp_tools=("godot_tilemap_set_pattern",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "create_alternative_tile": McpMapping(
+        abstract_method="create_alternative_tile",
+        mcp_tools=("godot_tilemap_create_alternative_tile",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_animation": McpMapping(
+        abstract_method="set_tile_animation",
+        mcp_tools=("godot_tilemap_set_tile_animation",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "add_tileset_navigation_layer": McpMapping(
+        abstract_method="add_tileset_navigation_layer",
+        mcp_tools=("godot_tilemap_add_tileset_navigation_layer",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_navigation": McpMapping(
+        abstract_method="set_tile_navigation",
+        mcp_tools=("godot_tilemap_set_tile_navigation",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "tilemap_layer_set_navigation": McpMapping(
+        abstract_method="tilemap_layer_set_navigation",
+        mcp_tools=("godot_tilemap_layer_set_navigation",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "add_tileset_occlusion_layer": McpMapping(
+        abstract_method="add_tileset_occlusion_layer",
+        mcp_tools=("godot_tilemap_add_tileset_occlusion_layer",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_occlusion": McpMapping(
+        abstract_method="set_tile_occlusion",
+        mcp_tools=("godot_tilemap_set_tile_occlusion",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "add_tileset_scenes_collection_source": McpMapping(
+        abstract_method="add_tileset_scenes_collection_source",
+        mcp_tools=("godot_tilemap_add_tileset_scenes_collection_source",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "create_scene_tile": McpMapping(
+        abstract_method="create_scene_tile",
+        mcp_tools=("godot_tilemap_create_scene_tile",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "set_tile_constant_velocity": McpMapping(
+        abstract_method="set_tile_constant_velocity",
+        mcp_tools=("godot_tilemap_set_tile_constant_velocity",),
+        toolsets=frozenset({"tilemap"}),
+    ),
+    "tilemap_layer_set_kinematic": McpMapping(
+        abstract_method="tilemap_layer_set_kinematic",
+        mcp_tools=("godot_tilemap_layer_set_kinematic",),
+        toolsets=frozenset({"tilemap"}),
     ),
     "tilemap_inspect": McpMapping(
         abstract_method="tilemap_inspect",

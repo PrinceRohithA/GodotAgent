@@ -1,0 +1,109 @@
+"""Typed results for debugger breakpoint control tools (issue #110, Tier 1 + Tier 2)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class BreakpointResult(BaseModel):
+    """Outcome of setting or removing a single breakpoint."""
+
+    breakpoint_set: bool = False
+    breakpoint_removed: bool = False
+    path: str = ""
+    line: int = 0
+
+
+class ClearBreakpointsResult(BaseModel):
+    """Outcome of clearing all breakpoints."""
+
+    breakpoints_cleared: bool = False
+
+
+class ForceBreakResult(BaseModel):
+    """Outcome of requesting a forced break in the running game."""
+
+    force_break_sent: bool = False
+    # Whether the debugger session is (now) in a break state. False means the
+    # break was requested but the game has not entered the debug loop (issue
+    # #411) — e.g. no probe cooperation; treat stack tools as unreliable.
+    breaked: bool = False
+    session_id: int = -1
+
+
+class StepResult(BaseModel):
+    """Outcome of a debugger step command."""
+
+    stepped: bool = False
+
+
+class ContinueResult(BaseModel):
+    """Outcome of resuming execution after a breakpoint."""
+
+    running: bool = False
+
+
+class StackFramesResult(BaseModel):
+    """Outcome of requesting the current call stack."""
+
+    frames: list[dict[str, Any]] = Field(default_factory=list)
+    # Present when frames:[] means "no reply cached yet" rather than "empty
+    # stack" — the poll-and-cache reply is async (issue #411).
+    hint: str = ""
+
+
+class EvaluationResult(BaseModel):
+    """Outcome of evaluating an expression in a paused frame."""
+
+    expression: str = ""
+    value: Any = None
+    # True when an evaluation reply was actually received; value:null with
+    # evaluated=False means "no result yet", not "expression is null" (#411).
+    evaluated: bool = False
+
+
+class FrameVarsResult(BaseModel):
+    """Outcome of requesting variables at a given stack frame."""
+
+    frame: int = 0
+    locals: list[dict[str, Any]] = Field(default_factory=list)
+    members: list[dict[str, Any]] = Field(default_factory=list)
+    globals: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DebugStatusResult(BaseModel):
+    active: bool = False
+    debuggable: bool = False
+    breaked: bool = False
+    session_id: int = -1
+    playing: bool = False
+    paused: bool = False
+    probe_connected: bool = False
+    reason: str = ""
+
+
+class DebugErrorResult(BaseModel):
+    session_id: int = -1
+    breaked: bool = False
+    reason: str = ""
+    file: str = ""
+    line: int = 0
+    message: str = ""
+    stack: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class BreakpointListResult(BaseModel):
+    session_id: int = -1
+    breakpoints: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DebugVisualsResult(BaseModel):
+    collision_shapes: bool = False
+    navigation: bool = False
+
+
+class BreakStateResult(BaseModel):
+    breaked: bool = False
+    session_id: int = -1

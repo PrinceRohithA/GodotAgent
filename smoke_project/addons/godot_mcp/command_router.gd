@@ -50,6 +50,8 @@ const HANDLERS: Array = [
 	preload("./handlers/scene_session.gd"),
 	preload("./handlers/scripts.gd"),
 	preload("./handlers/shaders.gd"),
+	preload("./handlers/spatial.gd"),
+	preload("./handlers/sprite_frames.gd"),
 	preload("./handlers/theme_ui.gd"),
 	preload("./handlers/tilemap.gd"),
 	preload("./handlers/tileset.gd"),

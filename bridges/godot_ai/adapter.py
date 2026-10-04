@@ -164,6 +164,84 @@ class GodotAiBridgeAdapter:
     def tileset_inspect(self, args: TilesetInspectArgs) -> ToolResult:
         return self._todo("tileset_inspect", args)
 
+    def tileset_atlas_inspect(self, args: object) -> ToolResult:
+        return self._todo("tileset_atlas_inspect", args)
+
+    def get_tile_data(self, args: object) -> ToolResult:
+        return self._todo("get_tile_data", args)
+
+    def add_tileset_physics_layer(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_physics_layer", args)
+
+    def set_tile_collision(self, args: object) -> ToolResult:
+        return self._todo("set_tile_collision", args)
+
+    def clear_tile_collision(self, args: object) -> ToolResult:
+        return self._todo("clear_tile_collision", args)
+
+    def tilemap_layer_set_physics(self, args: object) -> ToolResult:
+        return self._todo("tilemap_layer_set_physics", args)
+
+    def tilemap_set_cells_batch(self, args: object) -> ToolResult:
+        return self._todo("tilemap_set_cells_batch", args)
+
+    def add_tileset_custom_data_layer(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_custom_data_layer", args)
+
+    def set_tile_custom_data(self, args: object) -> ToolResult:
+        return self._todo("set_tile_custom_data", args)
+
+    def add_tileset_terrain_set(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_terrain_set", args)
+
+    def add_tileset_terrain(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_terrain", args)
+
+    def set_tile_terrain(self, args: object) -> ToolResult:
+        return self._todo("set_tile_terrain", args)
+
+    def tilemap_set_terrain(self, args: object) -> ToolResult:
+        return self._todo("tilemap_set_terrain", args)
+
+    def tileset_add_pattern(self, args: object) -> ToolResult:
+        return self._todo("tileset_add_pattern", args)
+
+    def tilemap_set_pattern(self, args: object) -> ToolResult:
+        return self._todo("tilemap_set_pattern", args)
+
+    def create_alternative_tile(self, args: object) -> ToolResult:
+        return self._todo("create_alternative_tile", args)
+
+    def set_tile_animation(self, args: object) -> ToolResult:
+        return self._todo("set_tile_animation", args)
+
+    def add_tileset_navigation_layer(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_navigation_layer", args)
+
+    def set_tile_navigation(self, args: object) -> ToolResult:
+        return self._todo("set_tile_navigation", args)
+
+    def tilemap_layer_set_navigation(self, args: object) -> ToolResult:
+        return self._todo("tilemap_layer_set_navigation", args)
+
+    def add_tileset_occlusion_layer(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_occlusion_layer", args)
+
+    def set_tile_occlusion(self, args: object) -> ToolResult:
+        return self._todo("set_tile_occlusion", args)
+
+    def add_tileset_scenes_collection_source(self, args: object) -> ToolResult:
+        return self._todo("add_tileset_scenes_collection_source", args)
+
+    def create_scene_tile(self, args: object) -> ToolResult:
+        return self._todo("create_scene_tile", args)
+
+    def set_tile_constant_velocity(self, args: object) -> ToolResult:
+        return self._todo("set_tile_constant_velocity", args)
+
+    def tilemap_layer_set_kinematic(self, args: object) -> ToolResult:
+        return self._todo("tilemap_layer_set_kinematic", args)
+
     def tilemap_inspect(self, args: TilemapInspectArgs) -> ToolResult:
         return self._todo("tilemap_inspect", args)
 
@@ -178,6 +256,57 @@ class GodotAiBridgeAdapter:
 
     def tilemap_clear(self, args: TilemapClearArgs) -> ToolResult:
         return self._todo("tilemap_clear", args)
+
+    def create_sprite_frames(self, args: object) -> ToolResult:
+        return self._todo("create_sprite_frames", args)
+
+    def nodes_create_batch(self, args: object) -> ToolResult:
+        return self._todo("nodes_create_batch", args)
+
+    def nodes_edit_batch(self, args: object) -> ToolResult:
+        return self._todo("nodes_edit_batch", args)
+
+    def spatial_observe(self, args: object) -> ToolResult:
+        return self._todo("spatial_observe", args)
+
+    def observe(self, args: object) -> ToolResult:
+        return self._todo("observe", args)
+
+    def runtime_tree(self, args: object) -> ToolResult:
+        return self._todo("runtime_tree", args)
+
+    def runtime_node_inspect(self, args: object) -> ToolResult:
+        return self._todo("runtime_node_inspect", args)
+
+    def runtime_get_property(self, args: object) -> ToolResult:
+        return self._todo("runtime_get_property", args)
+
+    def runtime_set_property(self, args: object) -> ToolResult:
+        return self._todo("runtime_set_property", args)
+
+    def debug_status(self, args: object) -> ToolResult:
+        return self._todo("debug_status", args)
+
+    def debug_control(self, args: object) -> ToolResult:
+        return self._todo("debug_control", args)
+
+    def debug_breakpoint(self, args: object) -> ToolResult:
+        return self._todo("debug_breakpoint", args)
+
+    def debug_stack(self, args: object) -> ToolResult:
+        return self._todo("debug_stack", args)
+
+    def debug_error(self, args: object) -> ToolResult:
+        return self._todo("debug_error", args)
+
+    def debug_state(self, args: object) -> ToolResult:
+        return self._todo("debug_state", args)
+
+    def debug_visuals(self, args: object) -> ToolResult:
+        return self._todo("debug_visuals", args)
+
+    def debug_profiler(self, args: object) -> ToolResult:
+        return self._todo("debug_profiler", args)
 
     def _todo(self, tool_name: str, args: object) -> NoReturn:
         # Mapping table placeholder for future MCP tool names:

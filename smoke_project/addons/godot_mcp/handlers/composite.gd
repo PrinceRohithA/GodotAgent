@@ -20,6 +20,8 @@ func register(handlers: Dictionary) -> void:
 	handlers["cmd_compose_node"] = _cmd_compose_node
 	handlers["cmd_batch_create_nodes"] = _cmd_batch_create_nodes
 	handlers["cmd_apply_node_edits"] = _cmd_apply_node_edits
+	handlers["cmd_nodes_create_batch"] = _cmd_nodes_create_batch
+	handlers["cmd_nodes_edit_batch"] = _cmd_nodes_edit_batch
 
 
 # -- helpers -----------------------------------------------------------------
@@ -282,4 +284,213 @@ func _cmd_apply_node_edits(params: Dictionary) -> Dictionary:
 		"undoable": _router._helpers.undoable_for_count(to_apply.size()),
 		"hint": "" if _router._helpers.undoable_for_count(to_apply.size()) else _router._helpers.undo_threshold_hint(to_apply.size(), "applies"),
 		"persistence": persistence,
+	})
+
+
+# -- bulk semantic tools (GodotAgent) ----------------------------------------
+
+func _fail_at(index: int, code: String, hint: String, required: String = "") -> Dictionary:
+	var body := _router._fail(code, hint, required)
+	body["index"] = index
+	body["success"] = false
+	return body
+
+
+## Heterogeneous create+props in one transactional batch.
+## Spec: {type|node_type, name|node_name, parent|parent_path, properties?, script_path?}
+func _cmd_nodes_create_batch(params: Dictionary) -> Dictionary:
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null:
+		return _router._fail("PRECONDITION_FAILED", "No scene is open.", "active_scene")
+	var specs: Variant = params.get("nodes", [])
+	if not (specs is Array) or (specs as Array).is_empty():
+		return _router._fail("VALIDATION_ERROR", "'nodes' must be a non-empty array.")
+
+	var built_entries: Array = []  # {node, parent, index, name}
+	var seen_under_parent: Dictionary = {}  # parent_path -> Dictionary of names
+
+	for i in range((specs as Array).size()):
+		var spec: Variant = (specs as Array)[i]
+		if not (spec is Dictionary):
+			_free_built(built_entries)
+			return _fail_at(i, "VALIDATION_ERROR", "nodes[%d] must be a dictionary." % i)
+		var d: Dictionary = spec
+		var node_type := str(d.get("type", d.get("node_type", "")))
+		var node_name := str(d.get("name", d.get("node_name", "")))
+		var parent_path := str(d.get("parent", d.get("parent_path", ".")))
+		var properties: Dictionary = d.get("properties", {})
+		var script_path := str(d.get("script_path", ""))
+		if node_type.is_empty() or node_name.is_empty():
+			_free_built(built_entries)
+			return _fail_at(i, "VALIDATION_ERROR", "nodes[%d] requires type and name." % i)
+		var parent_found := _router._resolve(parent_path)
+		if not parent_found["ok"]:
+			_free_built(built_entries)
+			var err: Dictionary = parent_found
+			err["index"] = i
+			err["success"] = false
+			if str(err.get("error", "")) == "RESOURCE_NOT_FOUND":
+				err["error"] = "INVALID_PARENT"
+			return err
+		var parent: Node = parent_found["node"]
+		if not seen_under_parent.has(parent_path):
+			seen_under_parent[parent_path] = {}
+		var name_set: Dictionary = seen_under_parent[parent_path]
+		if name_set.has(node_name) or parent.has_node(NodePath(node_name)):
+			_free_built(built_entries)
+			return _fail_at(i, "VALIDATION_ERROR", "Duplicate name '%s' under parent '%s'." % [node_name, parent_path])
+		name_set[node_name] = true
+		var built := _build_node(node_type, node_name, properties, script_path)
+		if built.has("ok"):
+			_free_built(built_entries)
+			var berr: Dictionary = built
+			berr["index"] = i
+			berr["success"] = false
+			return berr
+		built_entries.append({"node": built["node"], "parent": parent, "parent_path": parent_path, "index": i})
+
+	var total := built_entries.size()
+	var undoable := _router._helpers.undoable_for_count(total)
+	var planned_paths: Array = []
+	for entry in built_entries:
+		var n: Node = entry["node"]
+		var p: Node = entry["parent"]
+		# Relative path as it will appear after parenting.
+		var parent_rel := Inspect.relative_path(p, root)
+		if parent_rel.is_empty() or parent_rel == ".":
+			planned_paths.append(String(n.name))
+		else:
+			planned_paths.append("%s/%s" % [parent_rel, n.name])
+
+	if bool(params.get("dry_run", false)):
+		_free_built(built_entries)
+		return _router._ok({
+			"success": true,
+			"created": 0,
+			"modified": 0,
+			"failed": 0,
+			"changes": planned_paths,
+			"count": planned_paths.size(),
+			"dry_run": true,
+			"undoable": undoable,
+			"hint": "" if undoable else _router._helpers.undo_threshold_hint(total),
+			"saved": false,
+		})
+
+	# Group by parent and commit.
+	var by_parent: Dictionary = {}  # parent instance id -> {parent, nodes}
+	for entry in built_entries:
+		var p: Node = entry["parent"]
+		var key := p.get_instance_id()
+		if not by_parent.has(key):
+			by_parent[key] = {"parent": p, "nodes": []}
+		(by_parent[key]["nodes"] as Array).append(entry["node"])
+
+	if undoable:
+		var ur := EditorInterface.get_editor_undo_redo()
+		ur.create_action("nodes_create_batch (%d)" % total)
+		for key in by_parent:
+			var group: Dictionary = by_parent[key]
+			var parent: Node = group["parent"]
+			for child in group["nodes"]:
+				ur.add_do_method(parent, "add_child", child)
+				ur.add_do_method(child, "set_owner", root)
+				ur.add_do_reference(child)
+				ur.add_undo_method(parent, "remove_child", child)
+		ur.commit_action()
+	else:
+		for key in by_parent:
+			var group2: Dictionary = by_parent[key]
+			var parent2: Node = group2["parent"]
+			for child2 in group2["nodes"]:
+				parent2.add_child(child2)
+				child2.set_owner(root)
+
+	# VERIFY: paths resolve
+	var changes: Array = []
+	for path in planned_paths:
+		var check := _router._resolve(path)
+		if not check["ok"]:
+			return _router._fail(
+				"INTERNAL_ERROR",
+				"Post-create verify failed for '%s' (tree may be inconsistent)." % path
+			)
+		changes.append(path)
+
+	var first_parent: Node = built_entries[0]["parent"]
+	var persistence := _router._helpers.persistent_target(first_parent)
+	return _router._ok(_router._helpers.with_persistence({
+		"success": true,
+		"created": changes.size(),
+		"modified": 0,
+		"failed": 0,
+		"changes": changes,
+		"count": changes.size(),
+		"dry_run": false,
+		"undoable": undoable,
+		"hint": "" if undoable else _router._helpers.undo_threshold_hint(total),
+		"saved": _maybe_save(params),
+	}, persistence))
+
+
+func _free_built(built_entries: Array) -> void:
+	for entry in built_entries:
+		var node: Node = entry["node"]
+		if is_instance_valid(node) and node.get_parent() == null:
+			node.free()
+
+
+## Bulk property edits: operations[{path, property, value}] (also accepts legacy edits[]).
+func _cmd_nodes_edit_batch(params: Dictionary) -> Dictionary:
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null:
+		return _router._fail("PRECONDITION_FAILED", "No scene is open.", "active_scene")
+
+	var edits: Array = []
+	var operations: Variant = params.get("operations", null)
+	if operations is Array and not (operations as Array).is_empty():
+		# Group operations by path into properties dicts for apply logic.
+		var by_path: Dictionary = {}
+		for i in range((operations as Array).size()):
+			var op: Variant = (operations as Array)[i]
+			if not (op is Dictionary):
+				return _fail_at(i, "VALIDATION_ERROR", "operations[%d] must be a dictionary." % i)
+			var d: Dictionary = op
+			var path := str(d.get("path", d.get("node_path", "")))
+			var prop := str(d.get("property", ""))
+			if path.is_empty() or prop.is_empty():
+				return _fail_at(i, "VALIDATION_ERROR", "operations[%d] requires path and property." % i)
+			if not d.has("value"):
+				return _fail_at(i, "VALIDATION_ERROR", "operations[%d] requires value." % i)
+			if not by_path.has(path):
+				by_path[path] = {}
+			(by_path[path] as Dictionary)[prop] = d.get("value")
+		for path in by_path:
+			edits.append({"node_path": path, "properties": by_path[path]})
+	elif params.get("edits") is Array and not (params.get("edits") as Array).is_empty():
+		edits = params.get("edits")
+	else:
+		return _router._fail("VALIDATION_ERROR", "Provide non-empty 'operations' or 'edits'.")
+
+	var applied_params := params.duplicate()
+	applied_params["edits"] = edits
+	var result := _cmd_apply_node_edits(applied_params)
+	if not result.get("ok", false):
+		return result
+	var body: Dictionary = result.get("result", {})
+	var edited: Array = body.get("edited", [])
+	var skipped: Array = body.get("skipped", [])
+	return _router._ok({
+		"success": true,
+		"created": 0,
+		"modified": int(body.get("count", edited.size())),
+		"failed": 0,
+		"changes": edited,
+		"skipped": skipped,
+		"count": int(body.get("count", edited.size())),
+		"saved": body.get("saved", false),
+		"dry_run": body.get("dry_run", false),
+		"undoable": body.get("undoable", true),
+		"hint": body.get("hint", ""),
+		"persistence": body.get("persistence", []),
 	})

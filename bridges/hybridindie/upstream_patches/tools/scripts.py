@@ -258,10 +258,17 @@ def register_scripts(mcp: FastMCP, bridge: Bridge, config: ServerConfig, runner:
 
     @mcp.tool(meta=READ_ONLY, tags=SCRIPTS)
     @enforce_preconditions
-    async def get_parse_errors(script_path: str) -> ParseCheckResult:
-        """Parse-check ``script_path`` and return structured errors (message + line),
+    async def get_parse_errors(
+        script_path: str | None = None,
+        paths: list[str] | str | None = None,
+    ) -> ParseCheckResult:
+        """Parse-check a GDScript file and return structured errors (message + line),
         or an empty list when it parses cleanly. Prefer the ``parse{}`` embedded in
         ``write_script`` / ``patch_script`` results; use this to re-check.
+
+        Accepts ``script_path`` and/or ``paths`` (string or list) — agents often
+        pass ``paths``. When multiple paths are given, each is checked; the first
+        failing script's errors are returned (or the first path if all clean).
 
         Scope honesty (#423): this checks GDScript *syntax* — it does NOT catch
         class-API misuse (a nonexistent member parses clean and fails at runtime).
@@ -269,12 +276,7 @@ def register_scripts(mcp: FastMCP, bridge: Bridge, config: ServerConfig, runner:
         ``godot_runtime_get_game_output``.
         """
         require_godot_binary(runner.binary)
-        if script_path.endswith(".cs"):
-            raise ToolError(
-                "VALIDATION_ERROR: get_parse_errors checks GDScript syntax only — it does "
-                "not validate C# (issue #207). A .cs file is usable only after an MSBuild "
-                "build (Phase 2); until then there is no in-MCP C# validation."
-            )
+        candidates = _resolve_parse_paths(script_path, paths)
         project_dir = await resolve_project_dir(bridge, config)
         rescan_pending = await _wait_for_scan_quiet(bridge, max_wait_s=SCAN_WAIT_S)
         if rescan_pending:
@@ -283,23 +285,64 @@ def register_scripts(mcp: FastMCP, bridge: Bridge, config: ServerConfig, runner:
                 f"{SCAN_WAIT_S:.0f}s — refusing stale parse. Retry shortly. "
                 "[required=filesystem_scan]"
             )
-        output = await runner.check_script(project_dir, script_path, timeout=30.0)
-        errors = _normalize_parse_errors(
-            parse_check_errors(output.stdout + "\n" + output.stderr),
-            script_path,
-        )
-        ok = not errors
-        return ParseCheckResult(
-            script_path=script_path,
-            ok=ok,
-            errors=errors,
-            rescan_pending=False,
-            parse=ParseBlock(
-                status="ok" if ok else "error",
+
+        first_ok: ParseCheckResult | None = None
+        for path in candidates:
+            if path.endswith(".cs"):
+                raise ToolError(
+                    "VALIDATION_ERROR: get_parse_errors checks GDScript syntax only — it does "
+                    "not validate C# (issue #207). A .cs file is usable only after an MSBuild "
+                    "build (Phase 2); until then there is no in-MCP C# validation."
+                )
+            output = await runner.check_script(project_dir, path, timeout=30.0)
+            errors = _normalize_parse_errors(
+                parse_check_errors(output.stdout + "\n" + output.stderr),
+                path,
+            )
+            result = ParseCheckResult(
+                script_path=path,
+                ok=not errors,
                 errors=errors,
-                warnings=[],
-            ),
+                rescan_pending=False,
+                parse=ParseBlock(
+                    status="ok" if not errors else "error",
+                    errors=errors,
+                    warnings=[],
+                ),
+            )
+            if errors:
+                return result
+            if first_ok is None:
+                first_ok = result
+        assert first_ok is not None
+        return first_ok
+
+
+def _resolve_parse_paths(
+    script_path: str | None, paths: list[str] | str | None
+) -> list[str]:
+    """Normalize ``script_path`` / ``paths`` aliases into a non-empty path list."""
+    out: list[str] = []
+    if script_path:
+        out.append(str(script_path))
+    if paths is not None:
+        if isinstance(paths, str):
+            out.append(paths)
+        else:
+            out.extend(str(p) for p in paths if str(p).strip())
+    # Dedupe, preserve order.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for p in out:
+        if p and p not in seen:
+            seen.add(p)
+            unique.append(p)
+    if not unique:
+        raise ToolError(
+            "VALIDATION_ERROR: get_parse_errors requires script_path or paths "
+            "(res://… .gd)."
         )
+    return unique
 
 
 async def _wait_for_scan_quiet(

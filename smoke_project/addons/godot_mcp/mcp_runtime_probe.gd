@@ -12,8 +12,21 @@ extends Node
 ## to break at a chosen point in their own loop instead.
 
 const MAX_DEPTH := 32
+const Spatial := preload("spatial_observe.gd")
 
 var force_break_pending: bool = false  ## Set true by the editor via force_break message.
+
+## Allowlisted runtime write properties (P1 controlled intervention).
+const WRITE_ALLOWLIST := {
+	"position": true,
+	"global_position": true,
+	"rotation": true,
+	"scale": true,
+	"velocity": true,
+	"visible": true,
+	"modulate": true,
+	"z_index": true,
+}
 
 
 ## Check if the editor has requested a force_break and trigger ``breakpoint`` if so.
@@ -117,7 +130,221 @@ func _capture(message: String, data: Array) -> bool:
 			EngineDebugger.send_message("godot_mcp:force_break_ack", [])
 			print("[MCPRuntimeProbe] force_break_pending SET to true")
 			return true
+		"spatial_observe":
+			EngineDebugger.send_message("godot_mcp:spatial_observe", [_spatial_observe(_payload(data))])
+			return true
+		"runtime_tree":
+			EngineDebugger.send_message("godot_mcp:runtime_tree", [_runtime_tree_filtered(_payload(data))])
+			return true
+		"runtime_node_inspect":
+			EngineDebugger.send_message(
+				"godot_mcp:runtime_node_inspect", [_runtime_node_inspect(_payload(data))]
+			)
+			return true
+		"write_property":
+			EngineDebugger.send_message("godot_mcp:write_property", [_write_property(_payload(data))])
+			return true
 	return false
+
+
+func _spatial_observe(d: Dictionary) -> Dictionary:
+	var request_id := str(d.get("request_id", ""))
+	var root_path := str(d.get("root", "/root"))
+	var depth := int(d.get("depth", 3))
+	var include := Spatial.include_flags(d.get("include", ["transform", "bounds"]))
+	var type_filter: Array = d.get("type_filter", [])
+	if not (type_filter is Array):
+		type_filter = []
+	var path_filter := str(d.get("path_filter", ""))
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return {"request_id": request_id, "ready": true, "error": "no_scene_tree", "objects": []}
+	var start: Node = tree.root
+	if root_path != "/root" and not root_path.is_empty():
+		var n := tree.root.get_node_or_null(NodePath(root_path))
+		if n == null:
+			return {
+				"request_id": request_id,
+				"ready": true,
+				"error": "root_not_found",
+				"root": root_path,
+				"objects": [],
+			}
+		start = n
+	var objects := Spatial.walk_spatial(
+		start, tree.root, depth, include, type_filter, path_filter, true
+	)
+	return {
+		"request_id": request_id,
+		"ready": true,
+		"root": root_path,
+		"depth": depth,
+		"viewport": Spatial.viewport_info(get_viewport()),
+		"camera": Spatial.camera_info(start),
+		"objects": objects,
+		"count": objects.size(),
+	}
+
+
+func _runtime_tree_filtered(d: Dictionary) -> Dictionary:
+	var request_id := str(d.get("request_id", ""))
+	var root_path := str(d.get("root", "/root"))
+	var depth := int(d.get("depth", MAX_DEPTH))
+	var type_filter: Array = d.get("type_filter", [])
+	if not (type_filter is Array):
+		type_filter = []
+	var path_filter := str(d.get("path_filter", ""))
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return {
+			"request_id": request_id,
+			"ready": true,
+			"tree": {"name": "", "type": "", "path": "", "children": [], "error": "no_scene_tree"},
+		}
+	var start: Node = tree.root
+	if root_path != "/root" and not root_path.is_empty():
+		var n := tree.root.get_node_or_null(NodePath(root_path))
+		if n == null:
+			return {
+				"request_id": request_id,
+				"ready": true,
+				"tree": {"error": "root_not_found", "root": root_path, "children": []},
+			}
+		start = n
+	# Dedicated channel payload (not the warm scene_tree dump) so request_id matching works.
+	return {
+		"request_id": request_id,
+		"ready": true,
+		"tree": _node_to_dict_filtered(start, 0, depth, type_filter, path_filter),
+	}
+
+
+func _node_to_dict_filtered(
+	node: Node, depth: int, max_depth: int, type_filter: Array, path_filter: String
+) -> Dictionary:
+	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
+		return {}
+	var path_str := String(node.get_path())
+	var type_ok := type_filter.is_empty() or type_filter.has(node.get_class())
+	var path_ok := path_filter.is_empty() or path_str.contains(path_filter)
+	var children: Array = []
+	if depth < max_depth:
+		for child in node.get_children():
+			if child == null or not is_instance_valid(child) or not child.is_inside_tree():
+				continue
+			var child_dict := _node_to_dict_filtered(child, depth + 1, max_depth, type_filter, path_filter)
+			if not child_dict.is_empty():
+				children.append(child_dict)
+	if not type_ok and children.is_empty():
+		return {}
+	if not path_ok and children.is_empty() and depth > 0:
+		return {}
+	var parent_path := ""
+	if node.get_parent() != null and node.get_parent().is_inside_tree():
+		parent_path = String(node.get_parent().get_path())
+	var data := {
+		"name": String(node.name),
+		"type": node.get_class(),
+		"path": path_str,
+		"parent": parent_path,
+		"children": children,
+	}
+	if not node.scene_file_path.is_empty():
+		data["instance"] = node.scene_file_path
+	return data
+
+
+func _runtime_node_inspect(d: Dictionary) -> Dictionary:
+	var request_id := str(d.get("request_id", ""))
+	var node_path := str(d.get("path", d.get("node_path", "")))
+	var include_raw: Variant = d.get("include", ["properties", "transform"])
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return {"request_id": request_id, "ready": true, "error": "no_scene_tree"}
+	var node := tree.root.get_node_or_null(NodePath(node_path))
+	if node == null:
+		return {"request_id": request_id, "ready": true, "error": "not_found", "path": node_path}
+	var include_list: Array = include_raw if include_raw is Array else ["properties", "transform"]
+	var spatial_include := {
+		"transform": include_list.has("transform"),
+		"bounds": include_list.has("transform") or include_list.has("collision"),
+		"visual": false,
+		"collision": include_list.has("collision"),
+		"runtime": include_list.has("animation") or include_list.has("properties"),
+	}
+	var result := {
+		"request_id": request_id,
+		"ready": true,
+		"path": node_path,
+		"type": node.get_class(),
+		"name": String(node.name),
+	}
+	if include_list.has("transform") or include_list.has("collision"):
+		result["spatial"] = Spatial.build_spatial_object(node, tree.root, spatial_include, node_path)
+	if include_list.has("children"):
+		var kids: Array = []
+		for c in node.get_children():
+			if c is Node and c.is_inside_tree():
+				kids.append({"name": String(c.name), "type": c.get_class(), "path": String(c.get_path())})
+		result["children"] = kids
+	if include_list.has("properties"):
+		var props: Dictionary = {}
+		for prop_name in [
+			"position", "global_position", "rotation", "scale", "velocity",
+			"visible", "modulate", "z_index"
+		]:
+			if prop_name in node:
+				props[prop_name] = _json_safe(node.get(prop_name))
+		result["properties"] = props
+	if include_list.has("animation"):
+		result["animation"] = Spatial.build_runtime_fields(node)
+	return result
+
+
+func _write_property(d: Dictionary) -> Dictionary:
+	var request_id := str(d.get("request_id", ""))
+	var node_path := str(d.get("node_path", d.get("path", "")))
+	var property := str(d.get("property", ""))
+	var value: Variant = d.get("value")
+	if not WRITE_ALLOWLIST.has(property):
+		return {
+			"request_id": request_id,
+			"ready": true,
+			"ok": false,
+			"error": "PROPERTY_NOT_ALLOWED",
+			"hint": "Property '%s' is not in the runtime write allowlist." % property,
+		}
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return {"request_id": request_id, "ready": true, "ok": false, "error": "no_scene_tree"}
+	var node := tree.root.get_node_or_null(NodePath(node_path))
+	if node == null:
+		return {"request_id": request_id, "ready": true, "ok": false, "error": "not_found", "path": node_path}
+	if not (property in node):
+		return {
+			"request_id": request_id,
+			"ready": true,
+			"ok": false,
+			"error": "NO_SUCH_PROPERTY",
+			"property": property,
+		}
+	# Best-effort assign from JSON-ish values.
+	var coerced: Variant = value
+	if value is Array:
+		var arr: Array = value
+		if arr.size() >= 2 and typeof(node.get(property)) in [TYPE_VECTOR2, TYPE_VECTOR2I]:
+			coerced = Vector2(float(arr[0]), float(arr[1]))
+		elif arr.size() >= 3 and typeof(node.get(property)) in [TYPE_VECTOR3, TYPE_VECTOR3I]:
+			coerced = Vector3(float(arr[0]), float(arr[1]), float(arr[2]))
+	node.set(property, coerced)
+	return {
+		"request_id": request_id,
+		"ready": true,
+		"ok": true,
+		"path": node_path,
+		"property": property,
+		"value": _json_safe(node.get(property)),
+	}
 
 
 # --- profiling (issue #38) -------------------------------------------------
@@ -618,6 +845,20 @@ func _json_safe(value: Variant) -> Variant:
 			return {"x": value.x, "y": value.y, "z": value.z}
 		TYPE_COLOR:
 			return {"r": value.r, "g": value.g, "b": value.b, "a": value.a}
+		TYPE_RECT2, TYPE_RECT2I:
+			return {
+				"position": {"x": value.position.x, "y": value.position.y},
+				"size": {"x": value.size.x, "y": value.size.y},
+			}
+		TYPE_TRANSFORM2D:
+			return {
+				"columns": [
+					[value.x.x, value.x.y],
+					[value.y.x, value.y.y],
+					[value.origin.x, value.origin.y],
+				],
+				"origin": {"x": value.origin.x, "y": value.origin.y},
+			}
 		TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING:
 			return value
 		_:

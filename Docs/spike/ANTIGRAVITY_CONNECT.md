@@ -71,6 +71,96 @@ A gameplay task is not verified by visual appearance alone. Use runtime state, d
 
 ---
 
+## TileMapLayer recipe (collision platformer)
+
+Use **sibling `TileMapLayer` nodes** (Ground / Decor / Foreground / Hazards) sharing one TileSet. Deprecated `TileMap` is read/compat only.
+
+```text
+INSPECT
+  godot_tilemap_tileset_inspect / tileset_atlas_inspect
+
+AUTHOR
+  create_tileset → add_tileset_atlas_source → create_tile
+  add_tileset_physics_layer → set_tile_collision (shape=full_rect)
+  tilemap_layer_set_physics(collision_enabled=true)
+  tilemap_fill_rect / tilemap_set_cells_batch
+
+VERIFY
+  get_tile_data → collision polygons present
+  play → read is_on_floor (positive)
+  clear_tile_collision or collision_enabled=false → player falls (negative)
+  restore collision → lands again
+
+LATER
+  custom data → terrain (gated TERRAIN_NOT_CONFIGURED) → patterns → alts/anim
+  P3: navigation / occlusion / scene tiles / kinematic+velocity
+```
+
+Never host-write `.tres` TileSets / `.tscn` when these MCP tools exist.
+
+---
+
+## Bulk / composite recipe (prefer over N× create/set)
+
+Use semantic bulk tools — **not** a generic `batch_execute` of arbitrary MCP calls.
+
+```text
+SCENE BULK
+  godot_composite_nodes_create_batch
+    nodes: [{type, name, parent, properties}, ...]
+    validate → commit → verify paths; fail-before-commit with index
+  godot_composite_nodes_edit_batch
+    operations: [{path, property, value}, ...]
+    (or legacy edits: [{node_path, properties}])
+
+SPRITEFRAMES
+  godot_animation_create_sprite_frames
+    texture + frame_size + animations{ idle:{row,frames,fps,loop} | run:{frames:[[x,y],...]} }
+    optional save_path (.tres) + assign_to (AnimatedSprite2D)
+    VERIFY: animation_names + per-anim frame counts
+
+TILEMAP BULK (already available)
+  tilemap_fill_rect / tilemap_set_cells_batch / patterns
+```
+
+Prefer these over looping `create_node` / `set_property` / `edit_node` for ≥10 peers.
+
+---
+
+## Spatial + runtime + debug (structured first)
+
+Prefer structured world state over screenshots.
+
+```text
+OBSERVE PRIORITY
+  1. diagnostics / game output
+  2. runtime tree / node inspect / properties
+  3. spatial_observe (local vs global transforms, pivot/center, AABB, world_corners)
+  4. gameplay state (velocity, is_on_floor, animation)
+  5. screenshot LAST (visual confirmation only)
+
+SPATIAL
+  godot_spatial_observe(scope=editor|runtime, root, depth, include=[transform,bounds,collision,runtime])
+  Geometry is type-sourced (Sprite2D/Control/CollisionShape2D/CollisionPolygon2D/Polygon2D).
+  Unsupported types → geometry.available=false (never invent bounds).
+
+RUNTIME (read-only P0)
+  godot_runtime_tree / godot_runtime_node_inspect / godot_runtime_read_property
+
+DEBUG (session-centric)
+  godot_debugger_status → session_id, breaked, debuggable
+  godot_debugger_error → reason, file, line, message, stack (when broken)
+  godot_debugger_force_break / continue_execution / step_*
+  godot_debugger_set_breakpoint / remove / list / clear
+
+BLACK-BOX playtest: input → game → observe
+WHITE-BOX diagnose: inspect/runtime spatial → (P1) allowlisted write_property → observe
+```
+
+Never declare gameplay success from a screenshot alone.
+
+---
+
 ## Quick probes
 
 ```text

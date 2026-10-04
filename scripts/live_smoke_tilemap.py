@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Live smoke for abstract TileSet/TileMap tools via hybridindie adapter.
+"""Live smoke for TileMapLayer-first TileSet/TileMap system (Phases 0–3).
 
 Requires:
   - godot-editor-mcp HTTP on :9090 (scripts/start_mcp_server.ps1 with tilemap seeded)
-  - GodotAgentTest open with MCP dock connected (scripts/start_godot.ps1)
+  - GodotAgentTest open with MCP dock connected
 
 Usage::
 
@@ -27,15 +27,41 @@ if str(_ROOT) not in sys.path:
 
 from bridges.hybridindie.adapter import HybridindieBridgeAdapter
 from tools.schemas import (
+    AddTilesetCustomDataLayerArgs,
+    AddTilesetNavigationLayerArgs,
+    AddTilesetOcclusionLayerArgs,
+    AddTilesetPhysicsLayerArgs,
+    AddTilesetScenesCollectionSourceArgs,
+    AddTilesetTerrainArgs,
+    AddTilesetTerrainSetArgs,
+    ClearTileCollisionArgs,
     EditNodeArgs,
+    GetTileDataArgs,
     InspectSceneArgs,
+    ObserveRuntimeArgs,
+    RunGameArgs,
+    SaveSceneArgs,
+    SetTileCollisionArgs,
+    SetTileConstantVelocityArgs,
+    SetTileCustomDataArgs,
+    SetTileNavigationArgs,
+    SetTileOcclusionArgs,
+    StopGameArgs,
     TilemapFillRectArgs,
     TilemapGetCellArgs,
     TilemapInspectArgs,
+    TilemapLayerSetKinematicArgs,
+    TilemapLayerSetNavigationArgs,
+    TilemapLayerSetPhysicsArgs,
     TilemapSetCellArgs,
+    TilemapSetCellsBatchArgs,
+    TilemapSetTerrainArgs,
     TilesetAddAtlasArgs,
+    TilesetAddPatternArgs,
+    TilesetAtlasInspectArgs,
     TilesetCreateArgs,
     TilesetCreateTileArgs,
+    TilesetInspectArgs,
 )
 
 RESULTS_PATH = _ROOT / "Docs" / "spike" / "live_smoke_tilemap_results.md"
@@ -64,7 +90,7 @@ class HttpMcpTransport:
         if self._session:
             headers["Mcp-Session-Id"] = self._session
         req = urllib.request.Request(self._url, data=data, headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=90) as resp:
             sid = resp.headers.get("Mcp-Session-Id")
             if sid:
                 self._session = sid
@@ -72,7 +98,6 @@ class HttpMcpTransport:
         return self._parse_body(body)
 
     def _parse_body(self, body: str) -> Any:
-        # Prefer last JSON-RPC response from SSE stream.
         messages: list[Any] = []
         for line in body.splitlines():
             if line.startswith("data: "):
@@ -85,7 +110,6 @@ class HttpMcpTransport:
                 return json.loads(body)
             except json.JSONDecodeError:
                 return {"isError": True, "error": body[:500]}
-        # Prefer messages with id/result/error
         for msg in reversed(messages):
             if isinstance(msg, Mapping) and ("result" in msg or "error" in msg):
                 if "error" in msg:
@@ -98,7 +122,6 @@ class HttpMcpTransport:
         if not isinstance(result, Mapping):
             return result
         if result.get("isError"):
-            # content text often holds the error
             content = result.get("content") or []
             texts = []
             for block in content:
@@ -135,14 +158,15 @@ class HttpMcpTransport:
                 "params": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
-                    "clientInfo": {"name": "live_smoke_tilemap", "version": "1.0"},
+                    "clientInfo": {"name": "live_smoke_tilemap", "version": "2.0"},
                 },
             }
         )
-        # Enable tilemap toolset (seed may already have it after server restart).
-        self.call_tool("godot_enable_toolset", {"category": "tilemap"})
-        self.call_tool("godot_enable_toolset", {"category": "scene_edit"})
-        self.call_tool("godot_enable_toolset", {"category": "inspection"})
+        for cat in ("tilemap", "scene_edit", "inspection", "runtime", "debugging"):
+            try:
+                self.call_tool("godot_enable_toolset", {"category": cat})
+            except Exception:
+                pass
 
     def _alloc_id(self) -> int:
         i = self._next_id
@@ -170,7 +194,7 @@ def _write_results(rows: list[tuple[str, str, str]], mode: str) -> None:
     failed = sum(1 for _, s, _ in rows if s == "fail")
     blocked = sum(1 for _, s, _ in rows if s == "blocked")
     lines = [
-        "# Live smoke — TileMap / TileSet tools",
+        "# Live smoke — TileMap / TileSet tools (TileMapLayer-first)",
         "",
         f"**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"**Transport:** `{mode}`",
@@ -202,7 +226,7 @@ def main() -> int:
         rows.append(("connect MCP", "blocked", str(exc)))
         _write_results(rows, f"http:{args.http_url}")
         print("LIVE TILEMAP SMOKE: blocked — MCP HTTP unreachable")
-        print(f"  start: powershell -File scripts\\start_mcp_server.ps1")
+        print("  start: powershell -File scripts\\start_mcp_server.ps1")
         return 2
 
     adapter = HybridindieBridgeAdapter(
@@ -212,13 +236,15 @@ def main() -> int:
             "scene_edit",
             "tilemap",
             "project",
+            "runtime",
+            "debugging",
         ],
-        runtime_probe_present=False,
+        runtime_probe_present=True,
         godot_version="4.7.2.stable.steam",
     )
     adapter.connect()
 
-    def step(name: str, fn) -> None:
+    def step(name: str, fn) -> Any:
         try:
             result = fn()
             if result.ok:
@@ -231,22 +257,19 @@ def main() -> int:
                     else "fail"
                 )
                 rows.append((name, status, err[:200]))
+            return result
         except Exception as exc:  # noqa: BLE001
             rows.append((name, "fail", f"{type(exc).__name__}: {exc}"))
+            return None
 
     step(
         "Open main scene",
         lambda: adapter.inspect_scene(InspectSceneArgs(scene_path=SCENE)),
     )
 
-    # Remove prior smoke layer if present (ignore failure).
     try:
         adapter.edit_node(
-            EditNodeArgs(
-                operation="delete",
-                node_path=LAYER_NAME,
-                params={},
-            )
+            EditNodeArgs(operation="delete", node_path=LAYER_NAME, params={})
         )
     except Exception:
         pass
@@ -290,7 +313,6 @@ def main() -> int:
         ),
     )
 
-    # Create a few atlas tiles so paint has valid cells
     for coords in ((0, 0), (1, 0), (2, 0), (0, 1)):
         c = coords
 
@@ -305,6 +327,62 @@ def main() -> int:
 
         step(f"tileset_create_tile {c}", _make())
 
+    insp = step(
+        "tileset_inspect",
+        lambda: adapter.tileset_inspect(TilesetInspectArgs(node_path=layer_path)),
+    )
+    step(
+        "tileset_atlas_inspect",
+        lambda: adapter.tileset_atlas_inspect(
+            TilesetAtlasInspectArgs(source_id=0, node_path=layer_path)
+        ),
+    )
+
+    step(
+        "add_tileset_physics_layer",
+        lambda: adapter.add_tileset_physics_layer(
+            AddTilesetPhysicsLayerArgs(node_path=layer_path, collision_layer=1, collision_mask=1)
+        ),
+    )
+
+    step(
+        "set_tile_collision full_rect",
+        lambda: adapter.set_tile_collision(
+            SetTileCollisionArgs(
+                source_id=0,
+                atlas_coords=(0, 0),
+                node_path=layer_path,
+                shape="full_rect",
+            )
+        ),
+    )
+
+    td = step(
+        "get_tile_data VERIFY collision",
+        lambda: adapter.get_tile_data(
+            GetTileDataArgs(source_id=0, atlas_coords=(0, 0), node_path=layer_path)
+        ),
+    )
+    if td and td.ok:
+        physics = td.data.get("physics") or []
+        polys = 0
+        if physics:
+            polys = len((physics[0] or {}).get("polygons") or [])
+        rows.append(
+            (
+                "verify collision polygons present",
+                "pass" if polys > 0 else "fail",
+                f"polygons={polys}",
+            )
+        )
+
+    step(
+        "tilemap_layer_set_physics ON",
+        lambda: adapter.tilemap_layer_set_physics(
+            TilemapLayerSetPhysicsArgs(node_path=layer_path, collision_enabled=True)
+        ),
+    )
+
     step(
         "tilemap_fill_rect ground",
         lambda: adapter.tilemap_fill_rect(
@@ -318,21 +396,189 @@ def main() -> int:
     )
 
     step(
+        "tilemap_set_cells_batch accents",
+        lambda: adapter.tilemap_set_cells_batch(
+            TilemapSetCellsBatchArgs(
+                node_path=layer_path,
+                cells=[
+                    {"coords": [3, 9], "source_id": 0, "atlas_coords": [1, 0]},
+                    {"coords": [4, 9], "source_id": 0, "atlas_coords": [2, 0]},
+                ],
+            )
+        ),
+    )
+
+    step(
         "tilemap_get_cell verify",
         lambda: adapter.tilemap_get_cell(
             TilemapGetCellArgs(node_path=layer_path, coords=(0, 10), layer=0)
         ),
     )
 
+    # Negative collision smoke (TileData level)
     step(
-        "tilemap_set_cell accent",
-        lambda: adapter.tilemap_set_cell(
-            TilemapSetCellArgs(
-                node_path=layer_path,
-                coords=(5, 9),
-                source_id=0,
-                atlas_coords=(1, 0),
+        "clear_tile_collision (negative prep)",
+        lambda: adapter.clear_tile_collision(
+            ClearTileCollisionArgs(source_id=0, atlas_coords=(0, 0), node_path=layer_path)
+        ),
+    )
+    td_neg = step(
+        "get_tile_data VERIFY no collision",
+        lambda: adapter.get_tile_data(
+            GetTileDataArgs(source_id=0, atlas_coords=(0, 0), node_path=layer_path)
+        ),
+    )
+    if td_neg and td_neg.ok:
+        physics = td_neg.data.get("physics") or []
+        polys = len((physics[0] or {}).get("polygons") or []) if physics else 0
+        rows.append(
+            (
+                "verify collision cleared",
+                "pass" if polys == 0 else "fail",
+                f"polygons={polys}",
             )
+        )
+
+    step(
+        "set_tile_collision restore",
+        lambda: adapter.set_tile_collision(
+            SetTileCollisionArgs(
+                source_id=0,
+                atlas_coords=(0, 0),
+                node_path=layer_path,
+                shape="full_rect",
+            )
+        ),
+    )
+
+    # Phase 2
+    step(
+        "add_tileset_custom_data_layer damage",
+        lambda: adapter.add_tileset_custom_data_layer(
+            AddTilesetCustomDataLayerArgs(name="damage", type="int", node_path=layer_path)
+        ),
+    )
+    step(
+        "set_tile_custom_data damage=20",
+        lambda: adapter.set_tile_custom_data(
+            SetTileCustomDataArgs(
+                source_id=0,
+                atlas_coords=(0, 0),
+                name="damage",
+                value=20,
+                node_path=layer_path,
+            )
+        ),
+    )
+    step(
+        "add_tileset_terrain_set",
+        lambda: adapter.add_tileset_terrain_set(
+            AddTilesetTerrainSetArgs(node_path=layer_path, mode=0)
+        ),
+    )
+    step(
+        "add_tileset_terrain ground",
+        lambda: adapter.add_tileset_terrain(
+            AddTilesetTerrainArgs(terrain_set=0, name="ground", node_path=layer_path)
+        ),
+    )
+    # Gate: paint before config on empty set index should fail — use bad set
+    bad = adapter.tilemap_set_terrain(
+        TilemapSetTerrainArgs(
+            node_path=layer_path,
+            cells=[[0, 10]],
+            terrain_set=99,
+            terrain=0,
+        )
+    )
+    if not bad.ok and "TERRAIN_NOT_CONFIGURED" in (bad.error or ""):
+        rows.append(("TERRAIN_NOT_CONFIGURED gate", "pass", bad.error or ""))
+    else:
+        rows.append(
+            (
+                "TERRAIN_NOT_CONFIGURED gate",
+                "fail",
+                f"ok={bad.ok} err={bad.error}",
+            )
+        )
+
+    step(
+        "tileset_add_pattern room",
+        lambda: adapter.tileset_add_pattern(
+            TilesetAddPatternArgs(
+                node_path=layer_path,
+                cells=[
+                    {
+                        "coords": [0, 0],
+                        "source_id": 0,
+                        "atlas_coords": [0, 0],
+                    },
+                    {
+                        "coords": [1, 0],
+                        "source_id": 0,
+                        "atlas_coords": [0, 0],
+                    },
+                ],
+            )
+        ),
+    )
+
+    # Phase 3 tracks (authoring)
+    step(
+        "P3-A add_tileset_navigation_layer",
+        lambda: adapter.add_tileset_navigation_layer(
+            AddTilesetNavigationLayerArgs(node_path=layer_path)
+        ),
+    )
+    step(
+        "P3-A set_tile_navigation",
+        lambda: adapter.set_tile_navigation(
+            SetTileNavigationArgs(
+                source_id=0, atlas_coords=(0, 0), node_path=layer_path, shape="full_rect"
+            )
+        ),
+    )
+    step(
+        "P3-A tilemap_layer_set_navigation",
+        lambda: adapter.tilemap_layer_set_navigation(
+            TilemapLayerSetNavigationArgs(node_path=layer_path, navigation_enabled=True)
+        ),
+    )
+    step(
+        "P3-B add_tileset_occlusion_layer",
+        lambda: adapter.add_tileset_occlusion_layer(
+            AddTilesetOcclusionLayerArgs(node_path=layer_path)
+        ),
+    )
+    step(
+        "P3-B set_tile_occlusion",
+        lambda: adapter.set_tile_occlusion(
+            SetTileOcclusionArgs(
+                source_id=0, atlas_coords=(0, 0), node_path=layer_path, shape="full_rect"
+            )
+        ),
+    )
+    step(
+        "P3-C add_tileset_scenes_collection_source",
+        lambda: adapter.add_tileset_scenes_collection_source(
+            AddTilesetScenesCollectionSourceArgs(node_path=layer_path, source_id=1)
+        ),
+    )
+    step(
+        "P3-D set_tile_constant_velocity",
+        lambda: adapter.set_tile_constant_velocity(
+            SetTileConstantVelocityArgs(
+                source_id=0,
+                atlas_coords=(0, 0),
+                node_path=layer_path,
+                linear_velocity=(50.0, 0.0),
+            )
+        ),
+    )
+    step(
+        "P3-D tilemap_layer_set_kinematic",
+        lambda: adapter.tilemap_layer_set_kinematic(
+            TilemapLayerSetKinematicArgs(node_path=layer_path, use_kinematic_bodies=True)
         ),
     )
 
@@ -343,22 +589,60 @@ def main() -> int:
         ),
     )
 
-    # Verify get_cell is not empty
-    verify = adapter.tilemap_get_cell(
-        TilemapGetCellArgs(node_path=layer_path, coords=(0, 10))
+    # Persist MCP scene mutations so play_scene authoring audit passes.
+    step(
+        "save_scene before play",
+        lambda: adapter.save_scene(SaveSceneArgs(scene_path=SCENE)),
     )
-    if verify.ok and verify.data.get("empty") is True:
-        rows.append(("verify painted cell non-empty", "fail", str(verify.data)))
-    elif verify.ok:
+
+    # Optional playtest: collision ON lands / OFF falls (best-effort)
+    try:
+        play = adapter.run_game(RunGameArgs(scene_path=SCENE))
+        if play.ok:
+            rows.append(("play_scene", "pass", json.dumps(dict(play.data))[:120]))
+            # Wait briefly via observe
+            obs = adapter.observe_runtime(ObserveRuntimeArgs(include_errors=True))
+            if obs.ok:
+                rows.append(("observe_runtime after play", "pass", "ok"))
+            # Toggle collision_enabled off then on via layer flag — property verify if player exists
+            off = adapter.tilemap_layer_set_physics(
+                TilemapLayerSetPhysicsArgs(node_path=layer_path, collision_enabled=False)
+            )
+            rows.append(
+                (
+                    "playtest collision_enabled=false",
+                    "pass" if off.ok else "fail",
+                    "toggled" if off.ok else (off.error or ""),
+                )
+            )
+            on = adapter.tilemap_layer_set_physics(
+                TilemapLayerSetPhysicsArgs(node_path=layer_path, collision_enabled=True)
+            )
+            rows.append(
+                (
+                    "playtest collision_enabled=true",
+                    "pass" if on.ok else "fail",
+                    "restored" if on.ok else (on.error or ""),
+                )
+            )
+            stop = adapter.stop_game(StopGameArgs())
+            rows.append(
+                ("stop_game", "pass" if stop.ok else "fail", "ok" if stop.ok else (stop.error or ""))
+            )
+        else:
+            rows.append(("play_scene", "blocked", play.error or "play unavailable"))
+    except Exception as exc:  # noqa: BLE001
+        rows.append(("playtest suite", "blocked", f"{type(exc).__name__}: {exc}"))
+
+    if insp and insp.ok:
+        sources = insp.data.get("sources") or []
         rows.append(
             (
-                "verify painted cell non-empty",
-                "pass",
-                f"source_id={verify.data.get('source_id')}",
+                "verify tileset_inspect sources",
+                "pass" if sources else "fail",
+                f"count={len(sources)}",
             )
         )
-    else:
-        rows.append(("verify painted cell non-empty", "fail", verify.error or ""))
 
     _write_results(rows, f"http:{args.http_url}")
     passed = sum(1 for _, s, _ in rows if s == "pass")

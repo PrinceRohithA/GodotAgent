@@ -17,10 +17,14 @@ func register(handlers: Dictionary) -> void:
 	handlers["cmd_set_breakpoint"] = _cmd_set_breakpoint
 	handlers["cmd_remove_breakpoint"] = _cmd_remove_breakpoint
 	handlers["cmd_clear_breakpoints"] = _cmd_clear_breakpoints
+	handlers["cmd_list_breakpoints"] = _cmd_list_breakpoints
 	handlers["cmd_force_break"] = _cmd_force_break
 	# Read-only break-state check the server polls after force_break (#411) —
 	# the break lands a frame or two after the probe services the flag.
 	handlers["cmd_get_debug_break_state"] = _cmd_get_debug_break_state
+	handlers["cmd_debug_status"] = _cmd_debug_status
+	handlers["cmd_debug_error"] = _cmd_debug_error
+	handlers["cmd_debug_visuals"] = _cmd_debug_visuals
 	# Tier 2: step control via EditorDebuggerSession.send_message
 	handlers["cmd_step_into"] = _cmd_step
 	handlers["cmd_step_over"] = _cmd_step
@@ -91,33 +95,136 @@ func _cmd_clear_breakpoints(_params: Dictionary) -> Dictionary:
 ## Read-only: is the debug session currently in the break loop? Polled by the
 ## server after force_break so the tool can report whether the game actually
 ## paused (#411).
-func _cmd_get_debug_break_state(_params: Dictionary) -> Dictionary:
+func _cmd_get_debug_break_state(params: Dictionary) -> Dictionary:
 	var guard := _router._require_debug_session()
 	if not guard["ok"]:
 		return guard
 	var debugger := _router._debugger as MCPDebugger
-	var session := debugger.get_session(debugger.get_session_id())
+	var session_id := _resolve_session_id(params, debugger)
+	var session := debugger.get_session(session_id)
+	if session == null:
+		return _router._fail("PRECONDITION_FAILED", "No debugger session.", "debug_session")
 	var breaked: bool = session.is_breaked()
-	return _router._ok({"breaked": breaked})
+	return _router._ok({"breaked": breaked, "session_id": session_id})
 
+
+func _cmd_list_breakpoints(_params: Dictionary) -> Dictionary:
+	var guard := _router._require_debug_session()
+	if not guard["ok"]:
+		return guard
+	var debugger := _router._debugger as MCPDebugger
+	var session_id := _resolve_session_id(_params, debugger)
+	return _router._ok({
+		"session_id": session_id,
+		"breakpoints": debugger.get_tracked_breakpoints(),
+	})
+
+
+func _cmd_debug_status(params: Dictionary) -> Dictionary:
+	var debugger := _router._debugger as MCPDebugger
+	if debugger == null:
+		return _router._fail("PRECONDITION_FAILED", "Debugger plugin not attached.", "debug_session")
+	var session_id := _resolve_session_id(params, debugger)
+	var session = debugger.get_session(session_id) if session_id >= 0 else null
+	var active := session != null and session.is_active()
+	var debuggable := session != null and session.is_debuggable()
+	var breaked := session != null and session.is_breaked()
+	var playing := EditorInterface.is_playing_scene()
+	return _router._ok({
+		"active": active,
+		"debuggable": debuggable,
+		"breaked": breaked,
+		"session_id": session_id,
+		"playing": playing,
+		"paused": breaked,
+		"probe_connected": debugger.is_connected_to_probe(),
+		"reason": debugger.get_break_reason() if breaked else "",
+	})
+
+
+func _cmd_debug_error(params: Dictionary) -> Dictionary:
+	var guard := _router._require_debug_session()
+	if not guard["ok"]:
+		return guard
+	var debugger := _router._debugger as MCPDebugger
+	var session_id := _resolve_session_id(params, debugger)
+	var session := debugger.get_session(session_id)
+	if session == null:
+		return _router._fail("PRECONDITION_FAILED", "No debugger session.", "debug_session")
+	var breaked: bool = session.is_breaked()
+	var frames: Variant = debugger.get_cached_stack_frames()
+	if breaked:
+		debugger.request_stack_frames()
+	var file := ""
+	var line := 0
+	var stack: Array = []
+	if frames is Array:
+		stack = frames
+		if not stack.is_empty() and stack[0] is Dictionary:
+			file = str(stack[0].get("file", stack[0].get("source", "")))
+			line = int(stack[0].get("line", 0))
+	elif frames is Dictionary:
+		# Some dumps wrap frames.
+		var inner: Variant = (frames as Dictionary).get("frames", [])
+		if inner is Array:
+			stack = inner
+			if not stack.is_empty() and stack[0] is Dictionary:
+				file = str(stack[0].get("file", stack[0].get("source", "")))
+				line = int(stack[0].get("line", 0))
+	return _router._ok({
+		"session_id": session_id,
+		"breaked": breaked,
+		"reason": debugger.get_break_reason() if breaked else "not_breaked",
+		"file": file,
+		"line": line,
+		"message": debugger.get_last_error_message(),
+		"stack": stack,
+	})
+
+
+func _cmd_debug_visuals(params: Dictionary) -> Dictionary:
+	# Toggle Godot debug draw hints on the edited/running scene tree when possible.
+	var collision := params.get("collision_shapes", null)
+	var navigation := params.get("navigation", null)
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return _router._fail("PRECONDITION_FAILED", "No SceneTree available.")
+	if collision != null:
+		tree.debug_collisions_hint = bool(collision)
+	if navigation != null:
+		tree.debug_navigation_hint = bool(navigation)
+	return _router._ok({
+		"collision_shapes": tree.debug_collisions_hint,
+		"navigation": tree.debug_navigation_hint,
+	})
+
+
+func _resolve_session_id(params: Dictionary, debugger: MCPDebugger) -> int:
+	if params.has("session_id"):
+		return int(params.get("session_id"))
+	return debugger.get_session_id()
 
 
 func _cmd_force_break(_params: Dictionary) -> Dictionary:
 	var guard := _router._require_live_probe()
 	if not guard["ok"]:
 		return guard
-	_router._debugger.send_to_probe("godot_mcp:force_break", [])
+	var debugger := _router._debugger as MCPDebugger
+	debugger.mark_force_break_reason()
+	debugger.send_to_probe("godot_mcp:force_break", [])
 	# Non-blocking (the editor thread must not sleep): the probe services the
 	# force_break flag on its next frame, so the server polls
 	# cmd_get_debug_break_state for the break state (#411). Report the current
 	# state so the tool result is meaningful even without polling.
 	var breaked := false
-	var session = _router._debugger.get_session(_router._debugger.get_session_id())
+	var session_id := debugger.get_session_id()
+	var session = debugger.get_session(session_id)
 	if session != null and session.is_breaked():
 		breaked = true
 	return _router._ok({
 		"force_break_sent": true,
 		"breaked": breaked,
+		"session_id": session_id,
 	})
 
 # Tier 2: step control via EditorDebuggerSession.send_message ----------------

@@ -27,6 +27,32 @@ static func to_json(value: Variant) -> Variant:
 			return {"r": value.r, "g": value.g, "b": value.b, "a": value.a}
 		TYPE_RECT2, TYPE_RECT2I:
 			return {"position": to_json(value.position), "size": to_json(value.size)}
+		TYPE_TRANSFORM2D:
+			# Columns as [[x,y], [x,y], [ox,oy]] — explicit, not str().
+			return {
+				"columns": [
+					[value.x.x, value.x.y],
+					[value.y.x, value.y.y],
+					[value.origin.x, value.origin.y],
+				],
+				"rotation": value.get_rotation(),
+				"scale": {"x": value.get_scale().x, "y": value.get_scale().y},
+				"origin": {"x": value.origin.x, "y": value.origin.y},
+			}
+		TYPE_TRANSFORM3D:
+			return {
+				"origin": {"x": value.origin.x, "y": value.origin.y, "z": value.origin.z},
+				"basis": [
+					[value.basis.x.x, value.basis.x.y, value.basis.x.z],
+					[value.basis.y.x, value.basis.y.y, value.basis.y.z],
+					[value.basis.z.x, value.basis.z.y, value.basis.z.z],
+				],
+			}
+		TYPE_AABB:
+			return {
+				"position": {"x": value.position.x, "y": value.position.y, "z": value.position.z},
+				"size": {"x": value.size.x, "y": value.size.y, "z": value.size.z},
+			}
 		TYPE_NODE_PATH, TYPE_STRING_NAME:
 			return str(value)
 		TYPE_ARRAY, TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_INT32_ARRAY, \
@@ -115,6 +141,10 @@ static func from_json(value: Variant, type: int) -> Variant:
 			return bool(value)
 		TYPE_STRING:
 			return str(value)
+		TYPE_PACKED_VECTOR2_ARRAY:
+			return _packed_vector2_array_from_json(value)
+		TYPE_PACKED_VECTOR3_ARRAY:
+			return _packed_vector3_array_from_json(value)
 		_:
 			return value
 
@@ -129,7 +159,50 @@ const _CTOR_PREFIX := {
 	TYPE_VECTOR4I: "Vector4i(",
 	TYPE_RECT2: "Rect2(",
 	TYPE_RECT2I: "Rect2i(",
+	TYPE_PACKED_VECTOR2_ARRAY: "PackedVector2Array(",
+	TYPE_PACKED_VECTOR3_ARRAY: "PackedVector3Array(",
 }
+
+
+static func _packed_vector2_array_from_json(value: Variant) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	if value == null:
+		return out
+	if value is PackedVector2Array:
+		return value
+	if not (value is Array):
+		return out
+	var arr: Array = value
+	# Flat [x0,y0,x1,y1,...]
+	if not arr.is_empty() and typeof(arr[0]) in [TYPE_FLOAT, TYPE_INT]:
+		var i := 0
+		while i + 1 < arr.size():
+			out.append(Vector2(float(arr[i]), float(arr[i + 1])))
+			i += 2
+		return out
+	for item in arr:
+		out.append(from_json(item, TYPE_VECTOR2))
+	return out
+
+
+static func _packed_vector3_array_from_json(value: Variant) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if value == null:
+		return out
+	if value is PackedVector3Array:
+		return value
+	if not (value is Array):
+		return out
+	var arr: Array = value
+	if not arr.is_empty() and typeof(arr[0]) in [TYPE_FLOAT, TYPE_INT]:
+		var i := 0
+		while i + 2 < arr.size():
+			out.append(Vector3(float(arr[i]), float(arr[i + 1]), float(arr[i + 2])))
+			i += 3
+		return out
+	for item in arr:
+		out.append(from_json(item, TYPE_VECTOR3))
+	return out
 
 
 ## Parse a string form into a composite type, or null to fall back to dict/array.

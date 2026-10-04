@@ -40,11 +40,51 @@ in upstream client docs):
 }
 ```
 
-### Tilemap toolset
+### Tilemap toolset (TileMapLayer-first)
 
-Seed includes `tilemap`. Abstract tools map to `godot_tilemap_*` (including
-tileset create/atlas/tile — not `godot_tileset_*`). Prefer **TileMapLayer** on
-Godot 4.7. Capability flag: `tilemap_editing`.
+Seed includes `tilemap`. Abstract tools map to `godot_tilemap_*` (not
+`godot_tileset_*`). Prefer **TileMapLayer** siblings sharing one TileSet;
+deprecated `TileMap` is read/compat only for paint/get/clear.
+
+Full stack (apply `upstream_patches/tools|models/tilemap.py` via
+`scripts/patch_godot_mcp_server.ps1`):
+
+- **INSPECT/VERIFY:** `tileset_inspect`, `tileset_atlas_inspect`, `get_tile_data`
+- **Phase 1:** physics layer, `set_tile_collision` (`full_rect` → centered
+  polygon), `layer_set_physics`, `set_cells_batch`
+- **Phase 2:** custom data → terrain (`TERRAIN_NOT_CONFIGURED` gate) → patterns → alts/anim
+- **P3:** navigation, occlusion, scenes collection source, constant velocity + kinematic
+
+Capability flag: `tilemap_editing`. Live smoke: `scripts/live_smoke_tilemap.py`.
+
+### Bulk / composite authoring
+
+Seed already includes `composite` + `animation`. Prefer semantic bulk tools over
+N× `create_node` / `set_property`:
+
+| Abstract | MCP |
+|----------|-----|
+| `nodes_create_batch` | `godot_composite_nodes_create_batch` |
+| `nodes_edit_batch` | `godot_composite_nodes_edit_batch` |
+| `create_sprite_frames` | `godot_animation_create_sprite_frames` |
+
+Apply `upstream_patches/tools|models/{composite,animation}.py` via
+`scripts/patch_godot_mcp_server.ps1`. Live smoke: `scripts/live_smoke_bulk.py`.
+
+### Spatial / runtime / debug
+
+Seed includes `spatial`, `debugger`, `profiling`. Abstract tools:
+
+| Abstract | MCP |
+|----------|-----|
+| `spatial_observe` | `godot_spatial_observe` |
+| `runtime_tree` / `runtime_node_inspect` | `godot_runtime_tree` / `godot_runtime_node_inspect` |
+| `runtime_get_property` | `godot_runtime_read_property` |
+| `observe` | abstract composition (no mega MCP tool) |
+| `debug_status` / `debug_error` | `godot_debugger_status` / `godot_debugger_error` |
+| `debug_control` / `debug_breakpoint` / `debug_stack` | existing `godot_debugger_*` |
+
+Capability: `spatial_observation`. Live smoke: `scripts/live_smoke_spatial_debug.py`.
 
 Same seed string is exported as `bridges.hybridindie.mapping.GODOT_MCP_DEFAULT_TOOLSETS_SEED`.
 

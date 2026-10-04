@@ -25,11 +25,19 @@ from tools.schemas import (
     AnimationTreeInspectArgs,
     AttachScriptArgs,
     CreateSceneArgs,
+    CreateSpriteFramesArgs,
+    DebugControlArgs,
+    DebugStatusArgs,
     InspectSceneArgs,
+    NodesCreateBatchArgs,
+    NodesEditBatchArgs,
+    ObserveArgs,
     ObserveRuntimeArgs,
     PatchScriptArgs,
     PlaytestInputArgs,
+    RuntimeTreeArgs,
     SaveSceneArgs,
+    SpatialObserveArgs,
     TilemapFillRectArgs,
     TilemapSetCellArgs,
     TilesetAddAtlasArgs,
@@ -86,6 +94,159 @@ class HybridindieAdapterMappingTests(unittest.TestCase):
         self.assertTrue(registry.tool_available("create_scene"))
         self.assertTrue(registry.tool_available("save_scene"))
         self.assertTrue(registry.tool_available("attach_script"))
+        self.assertTrue(registry.tool_available("nodes_create_batch"))
+        self.assertTrue(registry.tool_available("nodes_edit_batch"))
+        self.assertTrue(registry.tool_available("create_sprite_frames"))
+        self.assertTrue(registry.is_capability_enabled("spatial_observation"))
+        self.assertTrue(registry.tool_available("spatial_observe"))
+        self.assertTrue(registry.tool_available("debug_status"))
+        self.assertIn("spatial", GODOT_MCP_DEFAULT_TOOLSETS_SEED)
+
+    def test_spatial_observe_maps_shape(self) -> None:
+        result = self.adapter.spatial_observe(
+            SpatialObserveArgs(scope="editor", root=".", depth=2, include=("transform", "bounds"))
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_spatial_observe")
+        self.assertEqual(args["scope"], "editor")
+        self.assertEqual(args["depth"], 2)
+
+    def test_runtime_tree_and_debug_control_shapes(self) -> None:
+        result = self.adapter.runtime_tree(RuntimeTreeArgs(root="/root", depth=4))
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_runtime_tree")
+        self.assertEqual(args["root"], "/root")
+
+        result = self.adapter.debug_control(DebugControlArgs(operation="break"))
+        self.assertTrue(result.ok, result.error)
+        name, _ = self.transport.last()
+        self.assertEqual(name, "godot_debugger_force_break")
+
+        result = self.adapter.debug_status(DebugStatusArgs())
+        self.assertTrue(result.ok, result.error)
+        name, _ = self.transport.last()
+        self.assertEqual(name, "godot_debugger_status")
+
+    def test_observe_composes_spatial_and_diagnostics(self) -> None:
+        result = self.adapter.observe(
+            ObserveArgs(scope="editor", include=("diagnostics", "spatial"), depth=1)
+        )
+        self.assertTrue(result.ok, result.error)
+        tools = [n for n, _ in self.transport.calls]
+        self.assertIn("godot_spatial_observe", tools)
+        self.assertEqual(result.data.get("scope"), "editor")
+        self.assertIn("spatial_observe", result.evidence.get("composed", []))
+
+    def test_runtime_set_property_and_debug_visuals_map(self) -> None:
+        from tools.schemas import DebugVisualsArgs, RuntimeSetPropertyArgs
+
+        result = self.adapter.runtime_set_property(
+            RuntimeSetPropertyArgs(node_path="/root/Main", property_name="visible", value=False)
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_runtime_write_property")
+        self.assertEqual(args["property"], "visible")
+
+        result = self.adapter.debug_visuals(DebugVisualsArgs(collision_shapes=True))
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_debugger_visuals")
+        self.assertTrue(args["collision_shapes"])
+
+    def test_nodes_create_batch_maps_shape(self) -> None:
+        result = self.adapter.nodes_create_batch(
+            NodesCreateBatchArgs(
+                nodes=[
+                    {
+                        "type": "StaticBody2D",
+                        "name": "Platform01",
+                        "parent": "Level",
+                        "properties": {"position": [100, 300]},
+                    },
+                    {
+                        "node_type": "Area2D",
+                        "node_name": "Trigger",
+                        "parent_path": ".",
+                        "properties": {},
+                    },
+                ],
+                save=False,
+            )
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_composite_nodes_create_batch")
+        self.assertEqual(
+            args,
+            {
+                "nodes": [
+                    {
+                        "type": "StaticBody2D",
+                        "name": "Platform01",
+                        "parent": "Level",
+                        "properties": {"position": [100, 300]},
+                    },
+                    {
+                        "type": "Area2D",
+                        "name": "Trigger",
+                        "parent": ".",
+                        "properties": {},
+                    },
+                ],
+                "save": False,
+            },
+        )
+
+    def test_nodes_edit_batch_maps_shape(self) -> None:
+        result = self.adapter.nodes_edit_batch(
+            NodesEditBatchArgs(
+                operations=[
+                    {"path": "Level/Platform01", "property": "position", "value": [120, 300]},
+                ]
+            )
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_composite_nodes_edit_batch")
+        self.assertEqual(
+            args,
+            {
+                "save": False,
+                "operations": [
+                    {
+                        "path": "Level/Platform01",
+                        "property": "position",
+                        "value": [120, 300],
+                    }
+                ],
+            },
+        )
+
+    def test_create_sprite_frames_maps_shape(self) -> None:
+        result = self.adapter.create_sprite_frames(
+            CreateSpriteFramesArgs(
+                texture="res://assets/player.png",
+                frame_size=(32, 32),
+                animations={
+                    "idle": {"row": 0, "frames": 6, "fps": 8, "loop": True},
+                    "run": {"frames": [[0, 1], [1, 1]], "fps": 12, "loop": True},
+                },
+                save_path="res://animations/player_frames.tres",
+                assign_to="Player/AnimatedSprite2D",
+            )
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_animation_create_sprite_frames")
+        self.assertEqual(args["texture"], "res://assets/player.png")
+        self.assertEqual(args["frame_size"], [32, 32])
+        self.assertEqual(args["save_path"], "res://animations/player_frames.tres")
+        self.assertEqual(args["assign_to"], "Player/AnimatedSprite2D")
+        self.assertIn("idle", args["animations"])
+        self.assertIn("run", args["animations"])
 
     def test_tileset_create_maps_shape(self) -> None:
         result = self.adapter.tileset_create(
@@ -177,6 +338,31 @@ class HybridindieAdapterMappingTests(unittest.TestCase):
                 "layer": 0,
             },
         )
+
+    def test_set_tile_collision_and_get_tile_data_shapes(self) -> None:
+        from tools.schemas import GetTileDataArgs, SetTileCollisionArgs
+
+        result = self.adapter.set_tile_collision(
+            SetTileCollisionArgs(
+                source_id=0,
+                atlas_coords=(0, 0),
+                node_path="Ground",
+                shape="full_rect",
+            )
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_tilemap_set_tile_collision")
+        self.assertEqual(args["shape"], "full_rect")
+        self.assertEqual(args["atlas_coords"], [0, 0])
+
+        result = self.adapter.get_tile_data(
+            GetTileDataArgs(source_id=0, atlas_coords=(0, 0), node_path="Ground")
+        )
+        self.assertTrue(result.ok, result.error)
+        name, args = self.transport.last()
+        self.assertEqual(name, "godot_tilemap_get_tile_data")
+        self.assertEqual(args["node_path"], "Ground")
 
     def test_inspect_scene_opens_then_gets_tree(self) -> None:
         result = self.adapter.inspect_scene(

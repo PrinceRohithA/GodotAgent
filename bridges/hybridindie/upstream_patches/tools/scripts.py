@@ -1,0 +1,322 @@
+"""Script read/patch tools (issue #10) + GodotAgent auto-parse contract.
+
+Lets an agent read, list, write, and patch GDScript, and check a script for parse
+errors — the authoring half of the build/verify/fix loop. Read/write/patch route
+through the addon (single path; the editor re-scans after writes, and writes are
+UndoRedo-reversible). ``get_parse_errors`` shells out to ``godot --check-only``
+(via the runner) because Godot exposes no in-editor API for structured parse
+errors. All in the gated ``scripts`` toolset.
+
+GodotAgent patch: every real ``write_script`` / ``patch_script`` auto-runs parse
+and returns ``{success, parse:{status, errors, warnings}}``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Annotated
+
+from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from pydantic import Field
+
+from mcp_server.bridge import Bridge
+from mcp_server.categories import SCRIPTS_TAG
+from mcp_server.config import ServerConfig
+from mcp_server.models.scripts import (
+    NodeScript,
+    ParseBlock,
+    ParseCheckResult,
+    ParseError,
+    PatchScriptResult,
+    ScriptContent,
+    ScriptList,
+    WriteScriptResult,
+)
+from mcp_server.output import paginate
+from mcp_server.runtime import Runner, resolve_project_dir
+from mcp_server.safety import (
+    MUTATING,
+    READ_ONLY,
+    enforce_preconditions,
+    require_godot_binary,
+)
+from mcp_server.scripts_parse import parse_check_errors
+from mcp_server.tools._route import route, run_or_preview, validate_or_raise
+
+SCRIPTS = {SCRIPTS_TAG}
+DEFAULT_PAGE_LIMIT = 200
+SCAN_WAIT_S = 10.0
+STEAM_GODOT_HINT = (
+    r"C:\Program Files (x86)\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe"
+)
+
+
+async def _script_exists(bridge: Bridge, script_path: str) -> bool:
+    """Read-only existence probe for a script (for write_script's dry_run overwrite
+    signal). Reads the file; a successful read means it exists (#205)."""
+    response = await bridge.send("cmd_read_script", {"script_path": script_path})
+    return bool(response.ok)
+
+
+def _normalize_parse_errors(raw_errors: list, script_path: str) -> list[ParseError]:
+    out: list[ParseError] = []
+    for err in raw_errors:
+        if isinstance(err, ParseError):
+            pe = err
+        elif isinstance(err, dict):
+            pe = ParseError(**err)
+        else:
+            pe = ParseError(message=str(err), source=script_path)
+        if pe.file is None:
+            pe = ParseError(
+                message=pe.message,
+                source=pe.source or script_path,
+                line=pe.line,
+                file=pe.source or script_path,
+            )
+        out.append(pe)
+    return out
+
+
+async def _auto_parse(
+    bridge: Bridge,
+    config: ServerConfig,
+    runner: Runner,
+    script_path: str,
+) -> ParseBlock:
+    """Run parse-check and return the explicit parse{} contract."""
+    if script_path.endswith(".cs"):
+        return ParseBlock(
+            status="skipped",
+            errors=[],
+            warnings=[
+                "C# parse not available yet (Phase 2 #207). Validate via MSBuild build."
+            ],
+        )
+    if runner.binary is None:
+        return ParseBlock(
+            status="unavailable",
+            errors=[
+                ParseError(
+                    message=(
+                        "Godot binary not found. Set GODOT_MCP_GODOT_BIN to your Godot "
+                        f"executable (Steam example: {STEAM_GODOT_HINT})."
+                    ),
+                    source=script_path,
+                    file=script_path,
+                )
+            ],
+            warnings=[],
+        )
+    project_dir = await resolve_project_dir(bridge, config)
+    rescan_pending = await _wait_for_scan_quiet(bridge, max_wait_s=SCAN_WAIT_S)
+    if rescan_pending:
+        return ParseBlock(
+            status="error",
+            errors=[
+                ParseError(
+                    message=(
+                        "Editor filesystem scan still running after "
+                        f"{SCAN_WAIT_S:.0f}s — parse refused (stale class cache risk). "
+                        "Retry get_parse_errors shortly."
+                    ),
+                    source=script_path,
+                    file=script_path,
+                )
+            ],
+            warnings=["rescan_pending"],
+        )
+    output = await runner.check_script(project_dir, script_path, timeout=30.0)
+    errors = _normalize_parse_errors(
+        parse_check_errors(output.stdout + "\n" + output.stderr),
+        script_path,
+    )
+    if errors:
+        return ParseBlock(status="error", errors=errors, warnings=[])
+    return ParseBlock(status="ok", errors=[], warnings=[])
+
+
+def register_scripts(mcp: FastMCP, bridge: Bridge, config: ServerConfig, runner: Runner) -> None:
+    """Register the script read/patch tools."""
+
+    @mcp.tool(meta=READ_ONLY, tags=SCRIPTS)
+    async def read_script(script_path: str) -> ScriptContent:
+        """Read the full text of the script at ``script_path`` (a ``res://`` path,
+        ``.gd`` or ``.cs``)."""
+        return ScriptContent(**await route(bridge, "cmd_read_script", {"script_path": script_path}))
+
+    @mcp.tool(meta=READ_ONLY, tags=SCRIPTS)
+    async def list_scripts(
+        directory: str = "res://",
+        offset: Annotated[int, Field(ge=0)] = 0,
+        limit: Annotated[int, Field(ge=1, le=1000)] = DEFAULT_PAGE_LIMIT,
+        language: str = "gd",
+    ) -> ScriptList:
+        """List script files under ``directory`` (recursive, ``res://`` path) for a
+        backend: ``language="gd"`` (default) lists ``.gd``, ``"cs"`` lists ``.cs``
+        (C# support: issue #207 Phase 1).
+
+        Paginated: ``scripts`` is a window of ``total`` files starting at ``offset``
+        (default page ``limit`` 200). When ``truncated``, pass ``next_offset`` to page on.
+        """
+        if language not in ("gd", "cs"):
+            raise ToolError(
+                f"VALIDATION_ERROR: language must be 'gd' or 'cs'. Got: '{language}'"
+                " [required=language]"
+            )
+        result = ScriptList(
+            **await route(
+                bridge, "cmd_list_scripts", {"directory": directory, "language": language}
+            )
+        )
+        window, total, truncated, next_offset = paginate(result.scripts, offset, limit)
+        result.scripts = window
+        result.total = total
+        result.returned = len(window)
+        result.truncated = truncated
+        result.next_offset = next_offset
+        return result
+
+    @mcp.tool(meta=READ_ONLY, tags=SCRIPTS)
+    async def get_script_for_node(node_path: str = "") -> NodeScript:
+        """Get the script attached to a node (by scene-relative ``node_path``, or the
+        selected node when omitted). ``script_path``/``content`` are null if none.
+        """
+        result = await route(bridge, "cmd_get_script_for_node", {"node_path": node_path})
+        return NodeScript(**result)
+
+    @mcp.tool(meta=MUTATING, tags=SCRIPTS, output_schema=WriteScriptResult.model_json_schema())
+    async def write_script(
+        script_path: str, content: str, dry_run: bool = False
+    ) -> WriteScriptResult:
+        """Create or overwrite the script at ``script_path`` (``res://``, ``.gd`` or
+        ``.cs``) with ``content``. Reversible via the editor's undo. ``dry_run=True``
+        writes nothing and reports ``would_overwrite``.
+
+        After a real write, this tool **auto-runs a GDScript parse check** and returns
+        ``success`` + ``parse:{status, errors, warnings}``. Parse covers syntax /
+        ``class_name`` load only — member/runtime errors need playtest
+        (``get_game_output``) or ``run_and_capture``.
+        """
+        params = {"script_path": script_path, "content": content}
+        if script_path.endswith(".cs"):
+            build_hint = (
+                "C# script written but NOT yet usable: C# is compiled, not live. Validate "
+                "via a C# build (godot_scripts_get_parse_errors does not cover .cs — "
+                "build support ships in Phase 2, issue #207); the new script is invisible "
+                "to the game until an MSBuild rebuild."
+            )
+        else:
+            build_hint = None
+        if dry_run:
+            await validate_or_raise(bridge, "cmd_write_script", params)
+            exists = await _script_exists(bridge, script_path)
+            return WriteScriptResult(
+                script_path=script_path,
+                created=not exists,
+                would_overwrite=exists,
+                previous_existed=exists,
+                hint=build_hint,
+                dry_run=True,
+                success=True,
+                parse=None,
+            )
+        result = WriteScriptResult(**await route(bridge, "cmd_write_script", params))
+        result.hint = build_hint
+        parse = await _auto_parse(bridge, config, runner, script_path)
+        result.parse = parse
+        result.success = parse.status in {"ok", "skipped"}
+        return result
+
+    @mcp.tool(meta=MUTATING, tags=SCRIPTS)
+    async def patch_script(
+        script_path: str, find: str, replace: str, dry_run: bool = False
+    ) -> PatchScriptResult:
+        """Replace every occurrence of ``find`` with ``replace`` in the script
+        (``.gd`` or ``.cs``). Errors if ``find`` isn't present. Reversible via undo;
+        ``dry_run`` previews. A real ``.gd`` patch **auto-runs parse** and returns
+        ``success`` + ``parse{}``.
+        """
+        if script_path.endswith(".cs"):
+            raise ToolError(
+                "VALIDATION_ERROR: patch_script does not edit .cs files yet — C# edits are "
+                "Phase 2 (issue #207). Use write_script for full-file .cs authoring."
+            )
+        params = {"script_path": script_path, "find": find, "replace": replace}
+        if dry_run:
+            preview = {"script_path": script_path, "replacements": 0}
+            return await run_or_preview(
+                dry_run, PatchScriptResult, preview, bridge, "cmd_patch_script", params
+            )
+        raw = await route(bridge, "cmd_patch_script", params)
+        result = PatchScriptResult(**raw)
+        parse = await _auto_parse(bridge, config, runner, script_path)
+        result.parse = parse
+        result.success = parse.status in {"ok", "skipped"}
+        return result
+
+    @mcp.tool(meta=READ_ONLY, tags=SCRIPTS)
+    @enforce_preconditions
+    async def get_parse_errors(script_path: str) -> ParseCheckResult:
+        """Parse-check ``script_path`` and return structured errors (message + line),
+        or an empty list when it parses cleanly. Prefer the ``parse{}`` embedded in
+        ``write_script`` / ``patch_script`` results; use this to re-check.
+
+        Scope honesty (#423): this checks GDScript *syntax* — it does NOT catch
+        class-API misuse (a nonexistent member parses clean and fails at runtime).
+        For that, run the project: ``godot_runtime_run_and_capture`` or play +
+        ``godot_runtime_get_game_output``.
+        """
+        require_godot_binary(runner.binary)
+        if script_path.endswith(".cs"):
+            raise ToolError(
+                "VALIDATION_ERROR: get_parse_errors checks GDScript syntax only — it does "
+                "not validate C# (issue #207). A .cs file is usable only after an MSBuild "
+                "build (Phase 2); until then there is no in-MCP C# validation."
+            )
+        project_dir = await resolve_project_dir(bridge, config)
+        rescan_pending = await _wait_for_scan_quiet(bridge, max_wait_s=SCAN_WAIT_S)
+        if rescan_pending:
+            raise ToolError(
+                "PRECONDITION_FAILED: Editor filesystem scan still running after "
+                f"{SCAN_WAIT_S:.0f}s — refusing stale parse. Retry shortly. "
+                "[required=filesystem_scan]"
+            )
+        output = await runner.check_script(project_dir, script_path, timeout=30.0)
+        errors = _normalize_parse_errors(
+            parse_check_errors(output.stdout + "\n" + output.stderr),
+            script_path,
+        )
+        ok = not errors
+        return ParseCheckResult(
+            script_path=script_path,
+            ok=ok,
+            errors=errors,
+            rescan_pending=False,
+            parse=ParseBlock(
+                status="ok" if ok else "error",
+                errors=errors,
+                warnings=[],
+            ),
+        )
+
+
+async def _wait_for_scan_quiet(
+    bridge: Bridge, max_wait_s: float = SCAN_WAIT_S, poll_s: float = 0.05
+) -> bool:
+    """Wait (bounded) for the editor's filesystem scan to finish. Returns whether
+    a scan was still in flight when the budget ran out (issue #453).
+
+    Never raises: the scan-state probe is best-effort — an unreachable bridge
+    just means no scan knowledge, so the check proceeds without gating.
+    """
+    try:
+        for _ in range(max(1, int(max_wait_s / poll_s))):
+            response = await bridge.send("cmd_get_scan_state", timeout=2.0)
+            if not response.ok or not (response.result or {}).get("scanning"):
+                return False
+            await asyncio.sleep(poll_s)
+        return True
+    except Exception:
+        return False

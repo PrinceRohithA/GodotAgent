@@ -1,0 +1,104 @@
+[gd_scene format=3 uid="uid://s41io4cggql7"]
+
+[ext_resource type="Script" uid="uid://c0aqbopsg2bxc" path="res://scripts/player.gd" id="1_player"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_floor"]
+size = Vector2(960, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
+size = Vector2(32, 48)
+
+[sub_resource type="Animation" id="Animation_idle"]
+resource_name = "idle"
+length = 0.2
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath(".:modulate")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+
+[sub_resource type="Animation" id="Animation_o5qli"]
+length = 0.3
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_player"]
+_data = {
+&"idle": SubResource("Animation_idle"),
+&"smoke_idle": SubResource("Animation_o5qli")
+}
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_0wfyh"]
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_sugp2"]
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_o5qli"]
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_jyhfs"]
+
+[node name="Main" type="Node2D" unique_id=2019122334]
+
+[node name="Floor" type="StaticBody2D" parent="." unique_id=1209256175]
+position = Vector2(480, 480)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Floor" unique_id=748066103]
+shape = SubResource("RectangleShape2D_floor")
+
+[node name="FloorVisual" type="ColorRect" parent="Floor" unique_id=553034768]
+offset_left = -480.0
+offset_top = -12.0
+offset_right = 480.0
+offset_bottom = 12.0
+color = Color(0.25, 0.35, 0.45, 1)
+
+[node name="Player" type="CharacterBody2D" parent="." unique_id=653283291]
+position = Vector2(200, 360)
+script = ExtResource("1_player")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player" unique_id=129129797]
+shape = SubResource("RectangleShape2D_player")
+
+[node name="Body" type="ColorRect" parent="Player" unique_id=1275805073]
+offset_left = -16.0
+offset_top = -24.0
+offset_right = 16.0
+offset_bottom = 24.0
+color = Color(0.85, 0.35, 0.2, 1)
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Player" unique_id=314158882]
+libraries/ = SubResource("AnimationLibrary_player")
+
+[node name="Camera2D" type="Camera2D" parent="Player" unique_id=307004912]
+position = Vector2(0, -40)
+
+[node name="SmokeMarker" type="Node2D" parent="." unique_id=941620387]
+
+[node name="SmokeAnimTree" type="AnimationTree" parent="." unique_id=668434950]
+tree_root = SubResource("AnimationNodeStateMachine_0wfyh")
+anim_player = NodePath("Player/AnimationPlayer")
+
+[node name="@Node2D@19929" type="Node2D" parent="." unique_id=141504617]
+
+[node name="@AnimationTree@19934" type="AnimationTree" parent="." unique_id=1330141147]
+tree_root = SubResource("AnimationNodeStateMachine_sugp2")
+anim_player = NodePath("Player/AnimationPlayer")
+
+[node name="@Node2D@19872" type="Node2D" parent="." unique_id=789045040]
+
+[node name="@Node2D@19883" type="Node2D" parent="." unique_id=1754425411]
+
+[node name="@AnimationTree@19888" type="AnimationTree" parent="." unique_id=1906375438]
+tree_root = SubResource("AnimationNodeStateMachine_o5qli")
+anim_player = NodePath("Player/AnimationPlayer")
+
+[node name="@Node2D@19861" type="Node2D" parent="." unique_id=311898742]
+
+[node name="@AnimationTree@19866" type="AnimationTree" parent="." unique_id=2113995099]
+tree_root = SubResource("AnimationNodeStateMachine_jyhfs")
+anim_player = NodePath("Player/AnimationPlayer")

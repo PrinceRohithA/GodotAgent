@@ -1,0 +1,17 @@
+{
+    "mcpServers":  {
+                       "godot":  {
+                                     "command":  "C:\\Users\\Prince Rohith\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\\LocalCache\\local-packages\\Python312\\Scripts\\godot-editor-mcp.exe",
+                                     "args":  [
+
+                                              ],
+                                     "env":  {
+                                                 "GODOT_MCP_DEFAULT_TOOLSETS":  "inspection,scene_edit,scripts,input_map,animation,tilemap,runtime,input,editor,debugger,project,resources_edit,composite",
+                                                 "GODOT_MCP_BRIDGE_URL":  "ws://127.0.0.1:19080",
+                                                 "GODOT_MCP_GODOT_BIN":  "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Godot Engine\\godot.windows.opt.tools.64.exe",
+                                                 "GODOT_MCP_PROJECT_DIR":  "C:\\Rohith\\Projects\\GodotAgentTest",
+                                                 "GODOT_MCP_LOG_LEVEL":  "INFO"
+                                             }
+                                 }
+                   }
+}

@@ -1,9 +1,9 @@
 # Live smoke results — hybridindie / Godot 4.7.2.steam
 
-**Generated:** 2026-10-03 15:26:41 UTC
+**Generated:** 2026-10-13 10:46:01 UTC
 **Transport mode:** `http:http://127.0.0.1:9090/mcp`
 **Bridge URL:** `ws://127.0.0.1:19080`
-**Toolset seed:** `inspection,scene_edit,scripts,input_map,animation,runtime,input,editor,debugger,project`
+**Toolset seed:** `inspection,scene_edit,scripts,input_map,animation,tilemap,runtime,input,editor,debugger,project,resources_edit,composite,spatial,profiling`
 **Runtime probe:** `MCPRuntimeProbe` → `res://addons/godot_mcp/mcp_runtime_probe.gd`
 **Steam Godot:** `C:\Program Files (x86)\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe`
 
@@ -20,13 +20,13 @@ This is a **Phase-0 live smoke**, not a permanent bridge winner declaration.
 | 5 | Change InputMap | **pass** |  |
 | 6 | Inspect / change AnimationPlayer | **pass** |  |
 | 7 | Inspect / change AnimationTree | **pass** |  |
-| 8 | Run game | **pass** |  |
-| 9 | Send keyboard input | **pass** |  |
-| 10 | Capture game viewport | **pass** |  |
-| 11 | Retrieve runtime errors / state | **pass** |  |
+| 8 | Run game | **blocked** | PRECONDITION_FAILED: raw_scene_or_settings_edit: disk changes to scene/settings files without MCP authoring ops: res://scenes/main.tscn, res://project.godot.... |
+| 9 | Send keyboard input | **blocked** | PRECONDITION_FAILED: required=runtime_probe (timeout waiting for probe) |
+| 10 | Capture game viewport | **blocked** | PRECONDITION_FAILED: No play session. Run play_scene first. [required=play_session] |
+| 11 | Retrieve runtime errors / state | **blocked** | PRECONDITION_FAILED: No play session. Run play_scene first. [required=play_session] |
 | 12 | Undo a mutation | **pass** |  |
 
-**Rollup:** pass=12 fail=0 blocked=0
+**Rollup:** pass=8 fail=0 blocked=4
 
 ## Probe attach notes (tests 9–11)
 

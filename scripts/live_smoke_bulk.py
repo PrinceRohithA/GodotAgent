@@ -4,7 +4,7 @@
 Requires:
   - godot-editor-mcp HTTP on :9090 (scripts/start_mcp_server.ps1; composite+animation seeded)
   - Patches applied (scripts/patch_godot_mcp_server.ps1)
-  - GodotAgentTest open with MCP dock connected (addon synced from smoke_project)
+  - mcp_smoke_project open with MCP dock connected (materialized by install_smoke_mcp_addon.ps1)
 
 Usage::
 

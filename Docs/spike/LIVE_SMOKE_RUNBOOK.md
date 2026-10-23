@@ -93,7 +93,7 @@ Python Scripts directory is often **not** on `PATH`.
 
 Env seeded:
 
-- `GODOT_MCP_DEFAULT_TOOLSETS=inspection,scene_edit,scripts,input_map,animation,runtime,input,editor,debugger,project`
+- `GODOT_MCP_DEFAULT_TOOLSETS=inspection,scene_edit,scripts,input_map,animation,tilemap,runtime,input,editor,debugger,project,resources_edit,composite,spatial,profiling`
 - `GODOT_MCP_BRIDGE_URL=ws://127.0.0.1:19080`
 - `GODOT_MCP_GODOT_BIN` → Steam Godot binary
 - `GODOT_MCP_PROJECT_DIR` → `smoke_project`

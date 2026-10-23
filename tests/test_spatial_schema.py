@@ -1,6 +1,6 @@
 """Pure geometry fixtures for SpatialObject AABB / corners (no Godot required).
 
-Mirrors the corner→AABB logic in smoke_project/addons/godot_mcp/spatial_observe.gd.
+Mirrors SpatialObject corner→AABB logic (geometry fixtures for agent/runtime observe).
 """
 
 from __future__ import annotations

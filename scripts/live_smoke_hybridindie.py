@@ -357,7 +357,7 @@ def _manual_checklist() -> list[str]:
         "1. Start MCP server: `powershell -File scripts/start_mcp_server.ps1`",
         "   (HTTP http://127.0.0.1:9090/mcp, bridge ws://127.0.0.1:19080 - not 9080; Nahimic owns 9080)",
         "2. Open Godot with bridge env: `powershell -File scripts/start_smoke_godot.ps1`",
-        "3. If first open: Import project -> open `smoke_project`",
+        "3. If first open: run install_smoke_mcp_addon.ps1, then import `mcp_smoke_project`",
         "4. Project -> Project Settings -> Plugins -> enable Godot MCP (file-seeded; confirm Enabled)",
         "5. Confirm Autoload MCPRuntimeProbe -> res://addons/godot_mcp/mcp_runtime_probe.gd",
         "6. MCP dock should show connected / bridge_connected",
@@ -674,7 +674,7 @@ def write_results(
         "`_session_active` from `EditorDebuggerSession.started`, which can be missed",
         "after play/stop cycles even when the game probe already sent `godot_mcp:ready`.",
         "Fix: treat `godot_mcp:ready` (and already-active sessions in `_setup_session`)",
-        "as proof the session is live — see `smoke_project/addons/godot_mcp/mcp_debugger.gd`.",
+        "as proof the session is live — see `mcp_smoke_project/addons/godot_mcp/mcp_debugger.gd`.",
         "",
         "Harness also waits on `godot_runtime_get_game_scene_tree` → `connected: true`",
         "(not a soft `observe_runtime` ok), uses absolute `/root/Main/Player` for live",
@@ -698,7 +698,7 @@ def write_results(
 def write_runbook() -> None:
     text = f"""# LIVE SMOKE RUNBOOK — hybridindie Phase-0
 
-Steam Godot **4.7.2.stable.steam** · project `smoke_project/` · bridge **hybridindie**
+Steam Godot **4.7.2.stable.steam** · project `mcp_smoke_project/` · bridge **hybridindie**
 (`godot-editor-mcp` **2026.09.30**).
 
 ## Why bridge port 19080?
@@ -742,7 +742,7 @@ Forces `GODOT_MCP_BRIDGE_URL=ws://127.0.0.1:19080` onto the editor process
 **First-time / cold import only:**
 
 1. Project manager → **Import** →  
-   `C:\\Rohith\\Projects\\GodotAgent\\smoke_project\\project.godot` → **Import & Edit**
+   `C:\\Rohith\\Projects\\GodotAgent\\mcp_smoke_project\\project.godot` → **Import & Edit**
 2. Wait for `.godot/` scan
 3. **Project → Project Settings → Plugins** → **Godot MCP** = Enabled
 4. **Autoload** → `MCPRuntimeProbe` → `res://addons/godot_mcp/mcp_runtime_probe.gd`
@@ -794,11 +794,11 @@ Env seeded:
 - `GODOT_MCP_DEFAULT_TOOLSETS={GODOT_MCP_DEFAULT_TOOLSETS_SEED}`
 - `GODOT_MCP_BRIDGE_URL=ws://127.0.0.1:19080`
 - `GODOT_MCP_GODOT_BIN` → Steam Godot binary
-- `GODOT_MCP_PROJECT_DIR` → `smoke_project`
+- `GODOT_MCP_PROJECT_DIR` → `mcp_smoke_project`
 
 ## Probe + toolsets
 
-- Autoload already in `smoke_project/project.godot`: `{RUNTIME_PROBE_AUTOLOAD}`
+- Autoload already in `mcp_smoke_project/project.godot`: `{RUNTIME_PROBE_AUTOLOAD}`
 - Without probe: playtest input / game screenshot / live observe → `PRECONDITION_FAILED`
 - Without toolset seed: Cursor may ignore `tools/list_changed` after `godot_enable_toolset`
 
@@ -818,7 +818,7 @@ def try_connect(args: argparse.Namespace) -> tuple[Optional[LiveMcpSession], str
         "GODOT_MCP_DEFAULT_TOOLSETS": GODOT_MCP_DEFAULT_TOOLSETS_SEED,
         "GODOT_MCP_BRIDGE_URL": os.environ.get("GODOT_MCP_BRIDGE_URL", DEFAULT_BRIDGE_URL),
         "GODOT_MCP_GODOT_BIN": os.environ.get("GODOT_MCP_GODOT_BIN", STEAM_GODOT),
-        "GODOT_MCP_PROJECT_DIR": str(_ROOT / "smoke_project"),
+        "GODOT_MCP_PROJECT_DIR": str(_ROOT / "mcp_smoke_project"),
         "GODOT_MCP_LOG_LEVEL": "INFO",
     }
     os.environ.setdefault("GODOT_MCP_BRIDGE_URL", DEFAULT_BRIDGE_URL)
@@ -967,7 +967,7 @@ def main() -> int:
         if not connected:
             detail = (
                 "godot_health_check bridge_connected=false. "
-                "Open smoke_project via scripts/start_smoke_godot.ps1 "
+                "Open mcp_smoke_project via scripts/start_smoke_godot.ps1 "
                 f"(bridge {DEFAULT_BRIDGE_URL}). Health={health!r}"
             )
             cases = [

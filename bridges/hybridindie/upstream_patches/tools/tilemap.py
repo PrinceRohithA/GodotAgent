@@ -251,9 +251,12 @@ def register_tilemap(mcp: FastMCP, bridge: Bridge) -> None:
         source_id: TileSourceIdOpt = None,
         margins: list[int] | None = None,
         separation: list[int] | None = None,
+        auto_create_tiles: bool = True,
+        filter_empty: bool = True,
+        auto_collision: bool = False,
         dry_run: bool = False,
     ) -> TileSetSourceResult:
-        """Add a TileSetAtlasSource from an imported Texture2D."""
+        """Add a TileSetAtlasSource from an imported Texture2D, automatically slicing and creating tiles."""
         _require_single_tileset_target(node_path, tileset_path)
         if node_path:
             await require_node_exists(bridge, node_path)
@@ -264,6 +267,9 @@ def register_tilemap(mcp: FastMCP, bridge: Bridge) -> None:
             "source_id": source_id,
             "margins": margins if margins is not None else [0, 0],
             "separation": separation if separation is not None else [0, 0],
+            "auto_create_tiles": auto_create_tiles,
+            "filter_empty": filter_empty,
+            "auto_collision": auto_collision,
         }
         preview = {
             "node_path": node_path,
@@ -271,6 +277,7 @@ def register_tilemap(mcp: FastMCP, bridge: Bridge) -> None:
             "source_id": source_id if source_id is not None else -1,
             "texture_path": texture_path,
             "region_size": region_size,
+            "auto_create_tiles": auto_create_tiles,
         }
         return await run_or_preview(
             dry_run,
@@ -286,13 +293,16 @@ def register_tilemap(mcp: FastMCP, bridge: Bridge) -> None:
     @enforce_preconditions
     async def create_tile(
         source_id: TileSourceId,
-        atlas_coords: list[int],
+        atlas_coords: list[int] | None = None,
         node_path: str = "",
         tileset_path: str = "",
         size: list[int] | None = None,
+        auto_generate: bool = False,
+        filter_empty: bool = True,
+        auto_collision: bool = False,
         dry_run: bool = False,
     ) -> TileCreateResult:
-        """Create a tile at ``atlas_coords`` in an atlas source."""
+        """Create a tile at ``atlas_coords`` in an atlas source, or auto-generate all tiles."""
         tile_size = size if size is not None else [1, 1]
         _require_single_tileset_target(node_path, tileset_path)
         if node_path:
@@ -300,8 +310,11 @@ def register_tilemap(mcp: FastMCP, bridge: Bridge) -> None:
         params = {
             **_tileset_target_params(node_path, tileset_path),
             "source_id": source_id,
-            "atlas_coords": atlas_coords,
+            "atlas_coords": atlas_coords if atlas_coords is not None else [-1, -1],
             "size": tile_size,
+            "auto_generate": auto_generate or (atlas_coords is None),
+            "filter_empty": filter_empty,
+            "auto_collision": auto_collision,
         }
         preview = {
             "node_path": node_path,

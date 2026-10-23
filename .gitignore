@@ -24,3 +24,6 @@ Thumbs.db
 *.pem
 credentials.json
 secrets/
+
+# Large extracted Kenney packs (keep project scaffolding; re-extract from Downloads zips)
+platformer_projects/*/assets/

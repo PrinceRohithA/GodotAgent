@@ -560,7 +560,7 @@ func _meta() -> Dictionary:
 			}
 		},
 		"invoke_level_designer": {
-			"desc": "Invoke the specialized Level Designer assistant. Audits the active scene for TileMapLayers, available entity scenes to instance (e.g. player, platforms, coins), measures player jump metrics, and returns strict TileMap-first directives.",
+			"desc": "MANDATORY tool to invoke whenever the user asks to build, populate, modify, or layout a level, platformer stage, terrain, or tiles. Audits the active scene for TileMapLayers, available entity scenes to instance, measures player jump reach metrics, activates Level Designer subagent mode, and returns strict TileMap-first directives with pan/zoom verification loop.",
 			"params": {
 				"type": "object",
 				"properties": {

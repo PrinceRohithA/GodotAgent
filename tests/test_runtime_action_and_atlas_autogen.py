@@ -10,7 +10,7 @@ MCP_ADDON = ROOT / "project" / "addons" / "godot_mcp"
 
 class RuntimeActionAndAtlasAutogenTests(unittest.TestCase):
     def setUp(self):
-        self.local_tools_src = (AGENT_ADDON / "agent_local_tools.gd").read_text(encoding="utf-8")
+        self.local_tools_src = (AGENT_ADDON / "agent_local_tools.gd").read_text(encoding="utf-8") + "\n" + (AGENT_ADDON / "tools" / "agent_tilemap_tools.gd").read_text(encoding="utf-8")
         self.catalog_src = (AGENT_ADDON / "agent_tool_catalog.gd").read_text(encoding="utf-8")
         self.bridge_src = (AGENT_ADDON / "agent_tools_bridge.gd").read_text(encoding="utf-8")
         self.server_src = (AGENT_ADDON / "agent_server.gd").read_text(encoding="utf-8")

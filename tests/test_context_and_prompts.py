@@ -341,8 +341,117 @@ class ContextAndPromptsTests(unittest.TestCase):
         self.assertIn("reimport_assets", server_src)
         self.assertIn("trigger Godot editor import scan or immediately reimport specified asset files/folders", server_src)
 
+    def test_system_prompt_contains_godot_causality_matrix_and_anti_hallucination(self):
+        server_src = (ADDON / "agent_server.gd").read_text(encoding="utf-8")
+        self.assertIn("### 3.8 The Godot Causality Matrix & Concept Ripple Engine", server_src)
+        self.assertIn("Node Tree Topology ➔ Script Node Paths", server_src)
+        self.assertIn("Physics Collision Matrix ➔ Layer/Mask Bitmasks", server_src)
+        self.assertIn("Scene Serialization Precedence ➔ Script @export Defaults", server_src)
+        self.assertIn("Camera & Viewport Framing ➔ Entity Positioning", server_src)
+        self.assertIn("TileSet Atlases ➔ TileData Collision Polygons", server_src)
+        self.assertIn("Signals & Callables ➔ Event Routing", server_src)
+        self.assertIn("Input Mapping & UI Event Consumption", server_src)
+        self.assertIn("### 3.9 The Anti-Hallucination Mandate (Tool OK ≠ Task Complete)", server_src)
+        self.assertIn("Tool Execution is NOT Gameplay Verification", server_src)
+        self.assertIn("The End-to-End Causal Chain Law", server_src)
+        self.assertIn("Concept Ripple Check", server_src)
+        self.assertIn("Anti-Hallucination Check", server_src)
+
+    def test_level_designer_directives_and_skills_contain_causality_matrix(self):
+        local_src = (ADDON / "agent_local_tools.gd").read_text(encoding="utf-8")
+        skill_text = (ADDON / "skills" / "builtin" / "level_designer.md").read_text(encoding="utf-8")
+        subagent_file = ROOT / ".agents" / "agents" / "level-designer" / "agent.md"
+
+        # Check local tools directives
+        self.assertIn("10. CONCEPT CAUSALITY & RIPPLE AUDIT", local_src)
+        self.assertIn("11. ANTI-HALLUCINATION LAW", local_src)
+
+        # Check skill markdown
+        self.assertIn("The Level Design Causality Matrix & Anti-Hallucination Mandate", skill_text)
+        self.assertIn("Level Bounds ➔ Camera2D Limits", skill_text)
+        self.assertIn("Camera Viewport ➔ Background Coverage (Zero Void Law)", skill_text)
+        self.assertIn("Painted Cells ➔ TileSet Physics Collision Polygons", skill_text)
+
+        # Check subagent file
+        if subagent_file.exists():
+            subagent_text = subagent_file.read_text(encoding="utf-8")
+            self.assertIn("The Level Design Causality Matrix & Anti-Hallucination Mandate", subagent_text)
+            self.assertIn("Camera Viewport ➔ Background Coverage (Zero Void Law)", subagent_text)
+
+    def test_pan_zoom_defect_resolution_protocol_and_visual_reasoning(self):
+        server_src = (ADDON / "agent_server.gd").read_text(encoding="utf-8")
+        local_src = (ADDON / "agent_local_tools.gd").read_text(encoding="utf-8")
+        skill_text = (ADDON / "skills" / "builtin" / "level_designer.md").read_text(encoding="utf-8")
+
+        # 1. Main agent prompt has Section 4.5
+        self.assertIn("### 4.5 Mandatory Pan/Zoom Defect Resolution & Visual Inspection Protocol", server_src)
+        self.assertIn("Mandatory Multi-Sector Viewport Navigation", server_src)
+        self.assertIn("Mandatory Visual Sector Reasoning in `<think>`", server_src)
+        self.assertIn("The Fix & Re-Navigate Loop", server_src)
+
+        # 2. Local tools invoke_level_designer has required_next_steps with pan/zoom and visual reasoning
+        self.assertIn('"required_next_steps"', local_src)
+        self.assertIn("PAN/ZOOM INSPECTION", local_src)
+        self.assertIn("VISUAL REASONING IN <think>", local_src)
+        self.assertIn("final_zoom", local_src)
+
+        # 3. Level designer skill requires multi-sector navigation and visual sector reasoning in <think>
+        self.assertIn("Multi-Sector Navigation", skill_text)
+        self.assertIn("Mandatory Visual Sector Reasoning in `<think>`", skill_text)
+        self.assertIn("Fix & Re-Navigate Loop", skill_text)
+
+    def test_task_execution_system_prompt_wiring_and_runtime_verification_classification(self):
+        server_src = (ADDON / "agent_server.gd").read_text(encoding="utf-8")
+        runtime_src = (ADDON / "agent_task_runtime.gd").read_text(encoding="utf-8")
+        catalog_src = (ADDON / "agent_tool_catalog.gd").read_text(encoding="utf-8")
+
+        # 1. agent_server.gd wires _build_system_prompt() into _begin_task_execution
+        self.assertIn("base_sys := _build_system_prompt()", server_src)
+        self.assertIn("skills.compose_system_prompt(base_sys + task_context)", server_src)
+
+        # 2. Top-level core mandate explicitly requires subagent delegation for level design
+        self.assertIn("### 3.0 Mandatory Level Design Subagent Delegation Law", server_src)
+        self.assertIn("YOU MUST IMMEDIATELY DELEGATE TO THE LEVEL DESIGNER", server_src)
+
+        # 3. Planning phase directs delegation to invoke_level_designer
+        self.assertIn("delegating to the specialized Level Designer (invoke_level_designer)", server_src)
+
+        # 4. Completion gate nudges rather than aborts when verification is pending
+        self.assertIn("completion_nudge_sent", server_src)
+        self.assertIn("Verification check:", server_src)
+
+        # 5. Catalog marks invoke_level_designer as mandatory
+        self.assertIn("MANDATORY tool to invoke whenever the user asks to build", catalog_src)
+
+        # 6. agent_task_runtime.gd recognizes set_task_criteria and MCP tools as read-only and verification
+        self.assertIn("is_read_only_tool", runtime_src)
+        self.assertIn("is_verification_tool", runtime_src)
+        self.assertIn('"set_task_criteria"', runtime_src)
+        self.assertIn('"invoke_level_designer"', runtime_src)
+        self.assertIn("godot_inspection_", runtime_src)
+        self.assertIn("godot_runtime_run_and_capture", runtime_src)
+
+    def test_immediate_action_and_continuation_nudges(self):
+        server_src = (ADDON / "agent_server.gd").read_text(encoding="utf-8")
+
+        # 1. System prompt mandate against conversational pre-announcements and stopping after inspection
+        self.assertIn("### 3.10 Immediate Action & Autonomous Execution Mandate (Never Stop Prematurely)", server_src)
+        self.assertIn("Conversational Pre-Announcements (First Turn Mandate)", server_src)
+        self.assertIn("Premature Stopping After Inspection (Multi-Round Execution Mandate)", server_src)
+
+        # 2. Server continuation helpers exist
+        self.assertIn("func _is_preannouncement_without_tools", server_src)
+        self.assertIn("func _is_intermediate_pause_without_tools", server_src)
+
+        # 3. Server nudges exist in _on_chat_resp
+        self.assertIn("preannouncement_nudged", server_src)
+        self.assertIn("intermediate_pause_nudged", server_src)
+        self.assertIn("You announced your plan. As an autonomous engineering agent", server_src)
+        self.assertIn("You inspected the state. The user requested this operation", server_src)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

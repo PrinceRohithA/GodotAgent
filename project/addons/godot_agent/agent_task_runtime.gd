@@ -13,7 +13,9 @@ const READ_ONLY_TOOLS := [
 	"inspect_spatial_context", "inspect_spatial_region", "convert_spatial_coordinates",
 	"preview_spatial_overlay", "preview_collision_overlay", "inspect_tilemap_layer",
 	"inspect_player_metrics", "test_runtime_action", "discover_capabilities",
-	"inspect_animation_player", "inspect_animation_tracks", "inspect_animation_tree"
+	"inspect_animation_player", "inspect_animation_tracks", "inspect_animation_tree",
+	"set_task_criteria", "invoke_level_designer", "list_tool_bundles", "unpack_tool_bundle",
+	"pack_tool_bundle", "select_mcp_profile", "activate_mcp_tools"
 ]
 const VERIFICATION_TOOLS := [
 	"inspect_project", "inspect_scene", "inspect_node", "get_diagnostics", "get_output_errors",
@@ -21,8 +23,27 @@ const VERIFICATION_TOOLS := [
 	"inspect_scene_diff", "validate_tileset_physics", "measure_visual_bounds",
 	"inspect_collision_geometry", "query_spatial_relationships", "inspect_spatial_context",
 	"inspect_spatial_region", "inspect_tilemap_layer", "inspect_player_metrics",
-	"preview_spatial_overlay", "preview_collision_overlay"
+	"preview_spatial_overlay", "preview_collision_overlay", "godot_runtime_run_and_capture"
 ]
+
+static func is_read_only_tool(name: String) -> bool:
+	if READ_ONLY_TOOLS.has(name):
+		return true
+	if name in ["set_task_criteria", "invoke_level_designer", "list_tool_bundles", "unpack_tool_bundle", "pack_tool_bundle", "select_mcp_profile", "activate_mcp_tools", "search_mcp_tools", "godot_health_check", "godot_describe_class"]:
+		return true
+	if name.begins_with("godot_inspection_") or name.begins_with("godot_project_get_") or name.begins_with("godot_project_search_") or name.begins_with("godot_project_resolve_") or name.begins_with("godot_scripts_read") or name.begins_with("godot_scripts_list") or name.begins_with("godot_scripts_get_") or name.begins_with("godot_analysis_") or name.begins_with("godot_runtime_capture_") or name.begins_with("godot_runtime_get_") or name.begins_with("godot_runtime_read_") or name.begins_with("godot_runtime_find_") or name.begins_with("godot_runtime_tree") or name.begins_with("godot_runtime_node_") or name.begins_with("godot_runtime_run_and_capture") or name.begins_with("godot_tilemap_get_") or name.begins_with("godot_tilemap_layers") or name.begins_with("godot_tilemap_tileset_inspect") or name.begins_with("godot_tilemap_tileset_atlas_inspect") or name.begins_with("godot_export_") or name.begins_with("godot_list_") or name.begins_with("godot_get_"):
+		return true
+	return false
+
+static func is_verification_tool(name: String) -> bool:
+	if VERIFICATION_TOOLS.has(name):
+		return true
+	if name in ["capture_viewport", "navigate_viewport", "inspect_asset_image", "get_output_errors", "get_diagnostics", "inspect_scene", "inspect_node", "inspect_project", "inspect_scene_diff", "validate_tileset_physics", "inspect_tilemap_layer", "inspect_player_metrics", "inspect_collision_geometry", "measure_visual_bounds", "query_spatial_relationships", "inspect_spatial_context", "inspect_spatial_region", "preview_spatial_overlay", "preview_collision_overlay", "godot_runtime_run_and_capture"]:
+		return true
+	if name.begins_with("godot_inspection_") or name.begins_with("godot_runtime_") or name.begins_with("godot_testing_") or name.begins_with("godot_profiling_") or name.begins_with("godot_analysis_") or name.begins_with("godot_spatial_observe"):
+		return true
+	return false
+
 var tasks: Dictionary = {}
 
 func _init() -> void:
@@ -190,13 +211,13 @@ func record_tool(id: String, name: String, result: Dictionary) -> Dictionary:
 	var node_path := str(args.get("node_path", args.get("path", "")))
 	if node_path.begins_with("/"): _append_tag(tags, "nodes", node_path)
 	t["tags"] = tags
-	if bool(result.get("ok", false)) and not READ_ONLY_TOOLS.has(name):
+	if bool(result.get("ok", false)) and not (READ_ONLY_TOOLS.has(name) or is_read_only_tool(name)):
 		t["verification_pending"] = true
 	var postcond_ok := bool(result.get("postconditions_verified", true))
 	var st_val := str(result.get("status", ""))
 	if st_val in ["partially_applied", "failed", "rejected"] or not postcond_ok:
 		t["verification_pending"] = true
-	if bool(result.get("ok", false)) and VERIFICATION_TOOLS.has(name):
+	if bool(result.get("ok", false)) and (VERIFICATION_TOOLS.has(name) or is_verification_tool(name)):
 		t["verification_pending"] = false
 	if bool(result.get("ok", false)):
 		var plan: Array = t.get("plan", [])

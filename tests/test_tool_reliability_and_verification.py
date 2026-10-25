@@ -11,7 +11,7 @@ ADDON = ROOT / "project" / "addons" / "godot_agent"
 class ToolReliabilityAndVerificationTests(unittest.TestCase):
     def setUp(self):
         self.bridge_src = (ADDON / "agent_tools_bridge.gd").read_text(encoding="utf-8")
-        self.local_src = (ADDON / "agent_local_tools.gd").read_text(encoding="utf-8")
+        self.local_src = (ADDON / "agent_local_tools.gd").read_text(encoding="utf-8") + "\n" + (ADDON / "tools" / "agent_tilemap_tools.gd").read_text(encoding="utf-8")
         self.catalog_src = (ADDON / "agent_tool_catalog.gd").read_text(encoding="utf-8")
         self.server_src = (ADDON / "agent_server.gd").read_text(encoding="utf-8")
         self.task_src = (ADDON / "agent_task_runtime.gd").read_text(encoding="utf-8")

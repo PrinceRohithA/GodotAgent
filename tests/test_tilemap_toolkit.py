@@ -9,7 +9,7 @@ ADDON = ROOT / "project" / "addons" / "godot_agent"
 
 class TileMapToolkitTests(unittest.TestCase):
     def setUp(self):
-        self.local_src = (ADDON / "agent_local_tools.gd").read_text(encoding="utf-8")
+        self.local_src = (ADDON / "agent_local_tools.gd").read_text(encoding="utf-8") + "\n" + (ADDON / "tools" / "agent_tilemap_tools.gd").read_text(encoding="utf-8")
         self.catalog_src = (ADDON / "agent_tool_catalog.gd").read_text(encoding="utf-8")
         self.bridge_src = (ADDON / "agent_tools_bridge.gd").read_text(encoding="utf-8")
         self.mapping_src = (ADDON / "mcp_mapping.gd").read_text(encoding="utf-8")

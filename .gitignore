@@ -27,3 +27,7 @@ secrets/
 
 # Large extracted Kenney packs (keep project scaffolding; re-extract from Downloads zips)
 platformer_projects/*/assets/
+
+# Third-party inspection addons
+project/addons/ziva_agent/
+

@@ -100,6 +100,35 @@ class SceneInstancingAndLevelDesignerTests(unittest.TestCase):
         self.assertIn("instance_scene(scene_path, parent_path, properties)", self.server_src)
         self.assertIn("TileMap-First Law", self.server_src)
 
+    def test_tile_by_tile_atlas_semantic_directives_and_mandates(self):
+        # 1. Local tools invoke_level_designer directive and tools
+        self.assertIn("TILE-BY-TILE ATLAS SEMANTIC CLASSIFICATION", self.local_tools_src)
+        self.assertIn("catalog_atlas_tiles", self.local_tools_src)
+        self.assertIn("preview_labelled_atlas", self.local_tools_src)
+        self.assertIn("Atlas Semantic Role Dictionary", self.local_tools_src)
+
+        # 2. Builtin Level Designer skill
+        skill_text = self.skill_file.read_text(encoding="utf-8")
+        self.assertIn("Tile-by-Tile Semantic Atlas Analysis & Role Mapping", skill_text)
+        self.assertIn("Atlas Semantic Role Dictionary", skill_text)
+        self.assertIn("Walkable Top Surface Rule", skill_text)
+        self.assertIn("Interior Fill Enclosure Rule", skill_text)
+        self.assertIn("Platform End-Cap Rule", skill_text)
+
+        # 3. Dedicated Level Designer agent.md
+        agent_file = ROOT / ".agents" / "agents" / "level-designer" / "agent.md"
+        self.assertTrue(agent_file.exists(), "agent.md must exist")
+        agent_text = agent_file.read_text(encoding="utf-8")
+        self.assertIn("Tile-by-Tile Semantic Atlas Analysis & Role Mapping", agent_text)
+        self.assertIn("Atlas Semantic Role Dictionary", agent_text)
+        self.assertIn("Walkable Top Surface Rule", agent_text)
+        self.assertIn("Interior Fill Enclosure Rule", agent_text)
+        self.assertIn("Platform End-Cap Rule", agent_text)
+
+        # 4. Server prompt level designer delegation laws
+        self.assertIn("Classify the tileset atlas tile-by-tile", self.server_src)
+        self.assertIn("Tile-by-Tile Atlas Semantic Classification", self.server_src)
+
 
 if __name__ == "__main__":
     unittest.main()

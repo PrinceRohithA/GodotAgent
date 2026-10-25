@@ -354,8 +354,9 @@ func call_tool_async(name: String, args: Dictionary, completed: Callable) -> voi
 	if name in ["undo", "redo", "list_history"] and scope == "mcp_editor":
 		_call_mcp("godot_list_history" if name == "list_history" else "godot_" + name, _without_scope(args), completed)
 		return
-	var target_name := name
-	match name:
+	var normalized_name := name.replace("-", "_")
+	var target_name := normalized_name
+	match normalized_name:
 		"add_node":
 			target_name = "create_node"
 		"remove_node":
@@ -431,7 +432,7 @@ func call_tool_async(name: String, args: Dictionary, completed: Callable) -> voi
 		"is_playing":
 			target_name = "godot_runtime_is_playing"
 		"simulate_key", "simulate_action", "simulate_mouse", "play_sequence":
-			target_name = "godot_input_" + name
+			target_name = "godot_input_" + normalized_name
 		"playtest_input":
 			var kind := str(args.get("kind", "")).to_lower()
 			if kind == "key" or args.has("key"):
@@ -497,13 +498,19 @@ func _call_mcp(name: String, args: Dictionary, completed: Callable) -> void:
 	_mcp.call_tool(name, args, call_id)
 
 func _bundle_for_tool(tool_name: String) -> String:
-	var target := tool_name
+	var target := tool_name.replace("-", "_")
 	if not target.begins_with("godot_"):
 		target = "godot_" + target
 	for b_name in TOOL_BUNDLES:
 		var prefixes: Array = TOOL_BUNDLES[b_name].get("prefixes", [])
 		for p in prefixes:
 			if target.begins_with(str(p)):
+				return str(b_name)
+	var stripped := target.trim_prefix("godot_")
+	for b_name in TOOL_BUNDLES:
+		var kw_list: Array = TOOL_BUNDLES[b_name].get("keywords", [])
+		for kw in kw_list:
+			if stripped.contains(str(kw)):
 				return str(b_name)
 	return ""
 

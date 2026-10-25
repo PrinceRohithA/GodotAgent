@@ -1,0 +1,17 @@
+[gd_scene format=3 uid="uid://dv20uoum0oko4"]
+
+[ext_resource type="Script" uid="uid://ba0lliii3u7dn" path="res://scripts/spike.gd" id="1_ljd5v"]
+
+[node name="Spike" type="Node2D" unique_id=720170468]
+
+[node name="Spike" type="Area2D" parent="." unique_id=1832401266]
+z_index = 2
+collision_layer = 2
+script = ExtResource("1_ljd5v")
+
+[node name="Visual" type="Polygon2D" parent="Spike" unique_id=1302591937]
+color = Color(0.9137255, 0.30980393, 0.21568628, 1)
+polygon = PackedVector2Array(-8, 8, 0, -8, 8, 8)
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Spike" unique_id=1888726691]
+polygon = PackedVector2Array(-7, 8, 0, -7, 7, 8)

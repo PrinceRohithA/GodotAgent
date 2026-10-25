@@ -262,5 +262,31 @@ class TestCollisionCalibrationMath(unittest.TestCase):
         self.assertGreater(dist_sq_bad, 0.0001)
 
 
+class TestHyphenAndAliasNormalization(unittest.TestCase):
+    """Verifies that hyphenated kebab-case names are normalized to snake_case across bridge and local tools."""
+
+    def test_bridge_normalizes_hyphens(self):
+        path = os.path.join(ADDONS_DIR, "agent_tools_bridge.gd")
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('name.replace("-", "_")', content)
+        self.assertIn("match normalized_name:", content)
+
+    def test_local_tools_normalizes_hyphens_in_has_tool_and_invoke(self):
+        path = os.path.join(ADDONS_DIR, "agent_local_tools.gd")
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('var n := name.replace("-", "_")', content)
+        self.assertIn('var norm_name := name.replace("-", "_")', content)
+
+    def test_modular_tools_are_preloaded(self):
+        path = os.path.join(ADDONS_DIR, "agent_local_tools.gd")
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('preload("res://addons/godot_agent/tools/agent_spatial_tools.gd")', content)
+        self.assertIn('preload("res://addons/godot_agent/tools/agent_animation_tools.gd")', content)
+        self.assertIn('preload("res://addons/godot_agent/tools/agent_tilemap_tools.gd")', content)
+
+
 if __name__ == "__main__":
     unittest.main()

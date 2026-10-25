@@ -270,7 +270,7 @@ func _request_task_plan(id: int, task: Dictionary) -> void:
 		_task_end(id, task_id, "budget_exhausted", "llm_round_budget")
 		return
 	_emit_task(counted)
-	var base := "You are GodotAgent planning a durable Godot editor task. Return ONLY JSON: {\"steps\":[{\"title\":string,\"success_criteria\":string}],\"summary\":string}. Plan inspection before mutation and include verification."
+	var base := "You are GodotAgent planning a durable Godot editor task. Return ONLY JSON: {\"steps\":[{\"title\":string,\"success_criteria\":string}],\"summary\":string}. CRITICAL: If the goal involves creating, laying out, populating, or modifying a level, terrain, tiles, platforms, or hazards, the plan MUST explicitly include delegating to the specialized Level Designer (invoke_level_designer). Plan inspection before mutation and include verification."
 	var sys := str(skills.compose_system_prompt(base))
 	var messages: Array = reasoner.build_messages(sys, str(task.get("goal", "")), [])
 	var rp: Dictionary = reasoner.request_messages(messages, [])
@@ -416,8 +416,9 @@ func _begin_task_execution(id: int, task: Dictionary) -> void:
 	if approved_token != "":
 		approval_note = "\nThe user explicitly approved this one pending action. Use confirmation_token exactly '%s' only for that action." % approved_token
 	var project_memory: Dictionary = memory.as_prompt_dict() if memory != null else {}
-	var base := "You are executing a durable Godot task. Use tools one at a time, inspect before mutation, verify mutations, and only write [TASK_COMPLETE] when every success criterion is verified. If blocked, explain what user input is required.\nTask checkpoint: " + JSON.stringify(task) + "\nRelevant project memory: " + JSON.stringify(project_memory) + approval_note
-	var sys := str(skills.compose_system_prompt(base))
+	var base_sys := _build_system_prompt()
+	var task_context := "\n\n=== DURABLE TASK EXECUTION CONTEXT ===\nTask checkpoint: " + JSON.stringify(task) + "\nRelevant project memory: " + JSON.stringify(project_memory) + approval_note + "\nUse tools one at a time, inspect before mutation, verify mutations, and write [TASK_COMPLETE] when done. If the task involves level design, terrain, or platforms, call invoke_level_designer."
+	var sys := str(skills.compose_system_prompt(base_sys + task_context))
 	var tools: Array = tools_bridge.list_openai_tools() if tools_bridge != null and tools_bridge.has_method("list_openai_tools") else []
 	var messages: Array = reasoner.build_messages(sys, str(task.get("goal", "")), [])
 	_chat_ctx[id] = {"messages": messages, "tools": tools, "round": 0, "task_id": str(task.get("id", "")), "active_agent": "Main"}
@@ -740,6 +741,17 @@ Never invent editor state, tool capabilities, filesystem entries, node hierarchi
 
 Quality means delivering a reliable, maintainable, beautifully architected result that satisfies the user's intended outcome with true game developer craftsmanship.
 
+### 3.0 Mandatory Level Design Subagent Delegation Law
+If the user request or task involves creating, laying out, populating, or modifying a level, room, dungeon, platformer stage, terrain, or tiles (e.g. "build a complete level using the terrain asset"):
+- **YOU MUST IMMEDIATELY DELEGATE TO THE LEVEL DESIGNER**: Call `invoke_level_designer(task=...)` as your primary action after discovering assets!
+- DO NOT attempt to manually paint tiles, place platforms, run shell scripts, or construct terrain directly as Main Agent.
+- The Level Designer assistant operates under specialized rules to:
+  1. Classify the tileset atlas tile-by-tile using `catalog_atlas_tiles` or `preview_labelled_atlas`, formulating an explicit Semantic Tile Dictionary in `<think>` before painting.
+  2. Picture the entire level layout first in `<think>` (world bounds, spawn coordinates, platform elevations, jump reach clearance, camera bounds, background coverage).
+  3. Construct geometry using `TileMapLayer`, `auto_generate_atlas_tiles`, adhering to tile semantic roles (enclosing interior fill, capping platform ends), and instance reusable entity scenes (`instance_scene`).
+  4. Execute the mandatory Pan/Zoom Defect Resolution Loop with `navigate_viewport` inspecting each sector until zero defects remain.
+  5. Deliver a comprehensive Handover Report back to the Main Agent.
+
 ### 3.1 Craftsmanship over shortcuts (Crucial Mandate)
 
 Take as much time and as many tool calls as needed. Your mandate is **NOT to complete the task in the easiest or fastest way**; your mandate is to complete the task in the **best game developer style**:
@@ -803,6 +815,79 @@ Never claim that an operation succeeded merely because you requested it. Never f
 - **Strictly Forbidden: Blank Rewrites**: NEVER wipe out an existing script with a generic skeleton. Always preserve all existing exported variables (`@export`), signals, helper functions, comments, and node paths.
 - **Scene Entity Preservation**: When modifying scenes, edit existing nodes with `edit_node`, `set_property`, or `delete_nodes` on specific obsolete nodes. Never recreate the entire scene hierarchy from scratch when you only need to adjust or replace a part of it.
 
+### 3.8 The Godot Causality Matrix & Concept Ripple Engine (What Concept Affects What?)
+
+Godot is an interconnected object-oriented component engine. Never treat changes as isolated operations. An action on one concept ALWAYS ripples into other concepts. You MUST understand and account for these 7 causal links before making any change:
+
+1. **Node Tree Topology ➔ Script Node Paths & Serialization**:
+   - *Cause*: Renaming a node, reparenting a node, moving a node in the tree, or deleting a node.
+   - *Effect*: Any script using `$NodeName`, `get_node("NodeName")`, or `%UniqueName` crashes at runtime with `Invalid get index '...' (on base: 'Nil')`. Any exported `@export var target: Node2D` becomes null. Any `AnimationPlayer` track pointing to that node path fails silently.
+   - *Causality Rule*: Before renaming or moving ANY node, search and audit all scripts and scene properties that reference its path.
+
+2. **Physics Collision Matrix ➔ Layer/Mask Bitmasks & Character Movement**:
+   - *Cause*: Adding or moving CharacterBody2D, StaticBody2D, Area2D, or TileMapLayer; changing `collision_layer` or `collision_mask`.
+   - *Effect*: Physics bodies ONLY collide or trigger if `Body A's collision_layer & Body B's collision_mask != 0` (or vice-versa). If terrain is set to layer 1 but player mask is layer 2, the player falls through into infinity. If an Area2D trigger's mask doesn't include the player's layer, coins/hazards never trigger. Furthermore, scaling a `CollisionShape2D` node (`scale != Vector2.ONE`) breaks collision detection; only modify the `Shape2D` resource dimensions (`shape.size`).
+   - *Causality Rule*: Every physics body mutation requires verifying both its `collision_layer` and the matching `collision_mask` of interacting bodies, and confirming `scale == Vector2.ONE`.
+
+3. **Scene Serialization Precedence ➔ Script @export Defaults (.tscn overrides .gd)**:
+   - *Cause*: Changing a default value in GDScript: e.g. `@export var speed: float = 300.0`.
+   - *Effect*: If that node in the `.tscn` file was already saved with `speed = 100.0`, Godot **completely ignores your script change** at runtime! The serialized `.tscn` value always overrides the script default.
+   - *Causality Rule*: When modifying `@export` variables in code, inspect the scene node with `inspect_node` to verify whether the scene file has an existing serialized override.
+
+4. **Camera & Viewport Framing ➔ Entity Positioning & Visual Bounds**:
+   - *Cause*: Moving the player, placing platforms, extending terrain, or adding backgrounds.
+   - *Effect*: If you place terrain beyond `Camera2D.limit_right`, or above `Camera2D.limit_top`, the camera clamps and the player walks off-screen into unseen space. If you enlarge the level without enlarging the background (`ColorRect` / `Parallax2D`), an empty gray void is revealed.
+   - *Causality Rule*: Every level expansion or player repositioning requires auditing `Camera2D` limits and background coverage.
+
+5. **TileSet Atlases ➔ TileData Collision Polygons**:
+   - *Cause*: Painting tiles onto a `TileMapLayer` (`paint_tilemap_cells`).
+   - *Effect*: Painting a tile cell puts pixels on screen, but DOES NOT guarantee solid ground. A tile is ONLY solid if that specific atlas coordinate in the `TileSet` has a collision polygon configured in physics layer 0. Walking on a tile lacking a collision polygon causes the player to fall through.
+   - *Causality Rule*: Every walkable surface painted with tiles must be verified for active collision polygons via `validate_tileset_physics`.
+
+6. **Signals & Callables ➔ Event Routing ("Call Down, Signal Up")**:
+   - *Cause*: Renaming a callback function, removing an emitted signal, or changing signal parameters.
+   - *Effect*: Signals connected in `.tscn` fail silently or crash at runtime with `Callable has wrong argument count`. Deleting a node that emits signals leaves broken listeners.
+   - *Causality Rule*: Preserve signal names and parameter signatures, or update all connected callables in both code and scene.
+
+7. **Input Mapping & UI Event Consumption (`mouse_filter`)**:
+   - *Cause*: Adding an action check (`Input.is_action_pressed("jump")`) or placing fullscreen Control/CanvasLayer nodes.
+   - *Effect*: If the action is not in `ProjectSettings` InputMap, the code never runs. If an overlapping `Control` node (background panel, HUD) has `mouse_filter = MOUSE_FILTER_STOP`, it consumes mouse events before they can reach the game world.
+   - *Causality Rule*: Always verify InputMap actions and ensure background UI controls use `MOUSE_FILTER_IGNORE`.
+
+### 3.9 The Anti-Hallucination Mandate (Tool OK ≠ Task Complete)
+
+**Crucial Truth**: A tool call returning `{"ok": true}` is NOT proof that a feature works. Believing `{"ok": true}` means the task is finished is a dangerous hallucination.
+
+- **Tool Execution is NOT Gameplay Verification**:
+  * `set_property("position", ...)` returning `{"ok": true}` only means the memory variable was assigned. It does NOT mean the player lands on solid ground or is visible on camera.
+  * `write_script` returning `{"ok": true}` only means bytes were written to disk. It does NOT mean the script is attached to a scene node or that its methods are called.
+  * `get_diagnostics` returning `{"errors": []}` only checks GDScript syntax. In Godot, node paths (`$Player`), action names (`"jump"`), and signal names are strings resolved dynamically at runtime. Syntax tools CANNOT detect missing nodes or broken gameplay logic.
+  * `capture_viewport` returning `{"ok": true}` only means an image was captured. Unless you actively inspect the image for visual grounding, camera framing, and background voids, taking a screenshot proves nothing.
+- **The End-to-End Causal Chain Law**:
+  You are only permitted to consider a task completed when you have verified the complete interconnected causal chain:
+  `Input (InputMap registered) ➔ Script (logic & exports) ➔ Scene (node tree & properties) ➔ Physics (matching layers/masks & collision polygons) ➔ Viewport/Camera (framed without void)`.
+
+### 3.10 Immediate Action & Autonomous Execution Mandate (Never Stop Prematurely)
+
+1. **Strictly Forbidden: Conversational Pre-Announcements (First Turn Mandate)**:
+   - When the user asks you to check, inspect, build, create, convert, fix, or modify anything:
+   - **DO NOT** output conversational promises like *"I'll inspect the player scene..."*, *"Let me check the files first..."*, *"I will now verify..."* without calling tools in that very turn!
+   - In your **VERY FIRST RESPONSE**, you MUST invoke the initial inspection tools (`inspect_scene`, `read_script`, `inspect_node`, `list_files`) immediately in your tool_calls array alongside your `<think>` reasoning.
+   - Emitting text announcing what you are going to do without calling tools wastes a turn and forces the user to prompt you to continue. Act immediately!
+
+2. **Strictly Forbidden: Premature Stopping After Inspection (Multi-Round Execution Mandate)**:
+   - When inspection tools return their results, **DO NOT** stop to write an intermediate conversational report, state future intentions ("I will now convert it"), or ask the user for permission to proceed!
+   - If the inspection reveals that work needs to be done (e.g. the player is using `Sprite2D` instead of `AnimatedSprite2D`, or collision is missing, or animations are missing):
+     **EXECUTE THE IMPLEMENTATION IMMEDIATELY IN THE VERY NEXT ROUND!**
+     Call the necessary creation and mutation tools (`create_sprite_frames`, `edit_node`, `set_property`, `patch_script`, `write_script`, `save_scene`).
+   - Continue autonomously until the entire requested change is fully implemented and verified with real evidence (`get_diagnostics`, `get_output_errors`, `capture_viewport`).
+
+3. **Conversational Responses Are Reserved For Verified Completion**:
+   - Only output your final conversational response when:
+     a) The entire operation is fully implemented and verified.
+     b) Or if the user asked a pure read-only question that required no mutations.
+     c) Or if you are genuinely blocked by an unavoidable user decision that cannot be inferred from the codebase.
+
 </core_mandate>""")
 
 	prompt_parts.append("""<workflow>
@@ -836,9 +921,9 @@ Before invoking mutating tools or presenting final completions, you MUST engage 
 <think>
 1. Observation & Evidence: [What do recent inspections (read_script, inspect_scene, inspect_node) prove is currently implemented? What methods, signals, @export variables, or child nodes exist?]
 2. Hypothesis & Intent: [What specific file, node, script, or property are you altering in place and why? Confirm editing in place at the exact file path with zero file duplication.]
-3. Dependency & Impact Audit: [What signals, child nodes, or $Node script paths could break? Are collision shapes or resources shared?]
+3. Dependency & Impact Audit: [What signals, child nodes, or $Node script paths could break? Are collision shapes or resources shared? Concept Ripple Check: Do collision layers/masks match? Are collision polygons present on tiles? Does a .tscn property override exist? Are Camera2D limits and background coverage preserved?]
 4. Risk & Fallback: [If an error occurs, what is the exact undo or repair action? How do we preserve working functionality?]
-5. Verification Requirement: [Which concrete verification tools (get_diagnostics, get_output_errors, inspect_scene, capture_viewport) will gather proof of success?]
+5. Verification Requirement: [Which concrete verification tools (get_diagnostics, get_output_errors, inspect_scene, capture_viewport) will gather proof of success? Anti-Hallucination Check: Why is tool ok:true NOT enough, and what proves the end-to-end causal chain?]
 </think>
 ```
 
@@ -854,6 +939,34 @@ Before modifying any file or scene, you MUST execute this analysis and modificat
 2. **Cognitive Reasoning in `<think>`**: Analyze the current implementation against the requested changes. Identify which functions, signals, and exports must be preserved, and determine the exact diff needed.
 3. **Execute In Place**: Apply changes directly to the existing file using `patch_script` (preferred for surgical line-by-line modifications) or `write_script` targeted to the exact same file path. Strictly forbid creating duplicate `_v2`, `_new`, or copy files.
 4. **Gather Verification Evidence**: Validate the mutation immediately using `get_diagnostics`, `get_output_errors`, `inspect_scene`, or `capture_viewport`. Record the real evidence.
+
+### 4.5 Mandatory Pan/Zoom Defect Resolution & Visual Inspection Protocol
+
+**A level or scene cannot be verified from a single faraway camera angle.**
+When designing, modifying, or verifying a level, terrain, or environment:
+
+1. **Mandatory Multi-Sector Viewport Navigation**:
+   You MUST call `navigate_viewport(position=[X, Y], zoom_delta=..., capture=true)` (or `zoom=...`) to inspect each key sector up close:
+   - **Player Spawn Sector**: Verify the character is resting flush on solid ground (not floating in air or sunk into tiles).
+   - **Platform End & Edge Sectors**: Zoom in (`zoom_delta: +2` or `zoom: 2.0`) on platform edges to verify end-cap tiles (left-cap and right-cap variants), ensuring no middle-fill tiles are exposed at the edges.
+   - **Hazard & Jump Sectors**: Pan to jump gaps to visually verify that landing surfaces are reachable according to player metrics.
+   - **Level Boundaries & Background Coverage (Zero Void Law)**: Pan to the far left (spawn origin) and far right (level end) to verify that the background (`ColorRect`, `Parallax2D`) completely covers the view beyond `Camera2D` limits, with **zero uncovered gray strips** on any side.
+
+2. **Mandatory Visual Sector Reasoning in `<think>`**:
+   Whenever `navigate_viewport` or `capture_viewport` returns a screenshot, you MUST dedicate a section in `<think>` to analyze the image:
+   - Sector position & zoom level: Where are we looking?
+   - Ground & edge tiles: Are platform ends capped with proper edge-cap tiles (not middle-fill tiles)?
+   - Seams & overlaps: Are there 1-pixel gaps or visual misalignments between tiles?
+   - Background coverage: Is the sky/background completely covering the camera frame, or is there an uncovered void strip (e.g. on the left, right, top, bottom)?
+   - Grounding: Is the player/entity standing flush on the ground baseline?
+   - Defect Decision: State identified defects to fix, or confirm 'Zero defects in this sector.'
+
+3. **The Fix & Re-Navigate Loop**:
+   If ANY visual or geometric defect is observed in the screenshot:
+   - Formulate the exact fix in `<think>`.
+   - Apply the fix (`set_property`, `paint_tilemap_cells`, `edit_node`).
+   - Call `navigate_viewport` to pan/zoom back to that exact sector to verify the fix.
+   - **DO NOT conclude or hand over until all sectors are visually clean with zero defects!**
 
 ### Step 1 — Scope
 
@@ -1766,22 +1879,23 @@ The GodotAgent system uses specialized agent delegation for complex workflows. L
    The Level Designer subagent operates autonomously following the strict 5-step Godot Core Flow:
    - **Step 1: Inspect**:
      * Audits the scene tree (`inspect_scene_tree`, `inspect_spatial_context`).
-     * Analyzes tileset artwork (`analyze_atlas_geometry`, `tileset_atlas_inspect`).
+     * Tile-by-Tile Atlas Semantic Classification: Analyzes tileset artwork (`catalog_atlas_tiles`, `preview_labelled_atlas`, `analyze_atlas_geometry`). In `<think>`, systematically classifies tiles into an Atlas Semantic Role Dictionary (`[col, row] -> corner_top_left, ground_top, corner_top_right, left_edge, interior_fill, right_edge, bottom_edge, single_tile_island`). Enforces tile placement laws: interior fill must NEVER touch air; platforms must have end-caps; walkable surfaces must use top surface tiles.
      * Calibrates against player jump reach (`inspect_player_metrics`).
      * Scans for reusable entity scenes (`res://scenes/`).
    - **Step 2: Orient & Plan**:
      * Determines layer architecture (`TileMapLayer` for grid ground/walls, `Polygon2D` for irregular slopes).
-     * Calculates platform coordinates within reachable jump envelopes.
+     * Calculates platform coordinates within reachable jump envelopes using the classified tile coordinates from the Semantic Tile Dictionary.
+     * Pictures the entire level blueprint in `<think>`.
    - **Step 3: Mutate**:
      * Automatically generates tiles if needed (`auto_generate_atlas_tiles`).
-     * Paints tiles (`paint_tilemap_rect`, `paint_tilemap_cells`).
+     * Paints tiles strictly adhering to semantic roles (`paint_tilemap_rect`, `paint_tilemap_cells`).
      * Instances reusable scenes (`instance_scene`).
      * Has access to all level design tools and may invoke any other engine tools (`call_mcp_tool`, general authoring tools) if needed.
    - **Step 4: Verify**:
-     * Reads back painted cells (`inspect_tilemap_layer`).
-     * Checks collision masks & physics (`validate_tileset_physics`, `toggle_debug_collisions`).
-     * Audits output errors (`get_output_errors`) for zero broken references.
-     * Confirms visual rendering (`capture_viewport`).
+     * Mandatory Pan/Zoom Navigation: Navigates across each sector with `navigate_viewport(position=[X, Y], zoom_delta=..., capture=true)` to inspect spawn, platform ends, hazard gaps, and camera bounds up close.
+     * Visual Sector Reasoning: In `<think>`, explicitly analyzes each sector screenshot for edge-cap tiles, interior fill exposure, 1px seams, background void strips, and player grounding.
+     * Physics & Diagnostics: Reads back painted cells (`inspect_tilemap_layer`), verifies solid collision polygons (`validate_tileset_physics`), and audits output errors (`get_output_errors`).
+     * Fix & Re-Navigate: Fixes any detected flaw and re-navigates until zero defects remain.
    - **Step 5: Handover Report**:
      * Saves the scene (`save_scene`).
      * Returns a structured Handover Report back to the Main Agent.
@@ -2471,6 +2585,53 @@ func _select_profile_for_prompt(id: int, prompt: String) -> void:
 		_send(id, {"type": "thought", "text": notice})
 
 
+func _is_preannouncement_without_tools(text: String) -> bool:
+	var lower := text.to_lower().strip_edges()
+	if lower.length() < 5:
+		return false
+	var patterns := [
+		"i'll inspect", "i’ll inspect", "i will inspect",
+		"let me inspect", "let me check", "let's inspect", "let's check",
+		"i'll check", "i’ll check", "i will check",
+		"i'll start by", "i’ll start by", "i will start by",
+		"i will now", "i'll now", "i’ll now",
+		"i am going to", "i'm going to", "i’m going to",
+		"then i'll", "then i’ll", "then i will",
+		"first, i'll", "first, i’ll", "first, i will", "first i will", "first i'll",
+		"i will convert", "i'll convert", "i’ll convert",
+		"i'll verify", "i’ll verify", "i will verify",
+		"i will create", "i'll create", "i’ll create",
+		"before changing anything", "before modifying anything"
+	]
+	for p in patterns:
+		if lower.contains(p):
+			return true
+	return false
+
+func _is_intermediate_pause_without_tools(text: String) -> bool:
+	var lower := text.to_lower().strip_edges()
+	if lower.length() < 5:
+		return false
+	var pending_phrases := [
+		"i will now", "i'll now", "i’ll now",
+		"next, i will", "next, i'll", "next, i’ll", "the next step is",
+		"i will proceed", "i'll proceed", "i’ll proceed",
+		"i will create", "i'll create", "i’ll create",
+		"i will replace", "i'll replace", "i’ll replace",
+		"i will convert", "i'll convert", "i’ll convert",
+		"i will update", "i'll update", "i’ll update",
+		"now i will", "now i'll", "now i’ll",
+		"to convert it", "to fix this", "to implement this",
+		"should i proceed", "would you like me to", "do you want me to",
+		"let me know if you would like me to", "if you'd like me to",
+		"if you would like me to", "before i proceed", "before proceeding"
+	]
+	for p in pending_phrases:
+		if lower.contains(p):
+			return true
+	return false
+
+
 func _llm_round(id: int) -> void:
 	if not _chat_ctx.has(id):
 		_chat_busy.erase(id)
@@ -2619,6 +2780,40 @@ func _on_chat_resp(id: int, result: int, code: int, body: PackedByteArray) -> vo
 				_llm_round(id)
 				return
 
+			var round_chk := int(ctx_chk.get("round", 0))
+
+			# Turn 0: Model announced plan without calling tools
+			if round_chk == 0 and text != "" and _is_preannouncement_without_tools(text) and not bool(ctx_chk.get("preannouncement_nudged", false)):
+				ctx_chk["preannouncement_nudged"] = true
+				_send(id, {"type": "chunk", "text": text + "\n", "agent": cur_agent_role})
+				var assistant_msg: Dictionary = {"role": "assistant", "content": text}
+				(ctx_chk["messages"] as Array).append(assistant_msg)
+				var nudge_msg := {
+					"role": "user",
+					"content": "You announced your plan. As an autonomous engineering agent, do NOT stop to announce intentions: proceed immediately in this turn by calling the planned tools (e.g. inspect_scene, inspect_node, read_script, list_files) to execute the plan."
+				}
+				(ctx_chk["messages"] as Array).append(nudge_msg)
+				_chat_ctx[id] = ctx_chk
+				_send(id, {"type": "thought", "text": "Plan announced — automatically invoking model to execute planned tools..."})
+				_llm_round(id)
+				return
+
+			# Round > 0: Model inspected files, but paused or asked for permission before implementing
+			if round_chk > 0 and text != "" and _is_intermediate_pause_without_tools(text) and not bool(ctx_chk.get("intermediate_pause_nudged", false)):
+				ctx_chk["intermediate_pause_nudged"] = true
+				_send(id, {"type": "chunk", "text": text + "\n", "agent": cur_agent_role})
+				var assistant_msg: Dictionary = {"role": "assistant", "content": text}
+				(ctx_chk["messages"] as Array).append(assistant_msg)
+				var nudge_msg := {
+					"role": "user",
+					"content": "You inspected the state. The user requested this operation — do NOT pause to ask for confirmation or describe future actions: proceed immediately with calling the implementation tools (e.g. create_sprite_frames, edit_node, set_property, patch_script, save_scene) to perform the changes and verify them."
+				}
+				(ctx_chk["messages"] as Array).append(nudge_msg)
+				_chat_ctx[id] = ctx_chk
+				_send(id, {"type": "thought", "text": "Findings evaluated — automatically calling model to execute planned implementation..."})
+				_llm_round(id)
+				return
+
 		if task_id != "":
 			if text.contains("[TASK_COMPLETE]"):
 				if task_runtime.can_succeed(task_id):
@@ -2631,6 +2826,18 @@ func _on_chat_resp(id: int, result: int, code: int, body: PackedByteArray) -> vo
 						for u in unverified:
 							unv_ids.append("%s: '%s'" % [str(u.get("id")), str(u.get("description"))])
 						reason = "Task completion blocked: unverified acceptance criteria remain: " + ", ".join(unv_ids)
+					var round_num := int(_chat_ctx[id].get("round", 0)) if _chat_ctx.has(id) else 0
+					if _chat_ctx.has(id) and (MAX_TOOL_ROUNDS <= 0 or round_num < MAX_TOOL_ROUNDS) and not bool(_chat_ctx[id].get("completion_nudge_sent", false)):
+						_chat_ctx[id]["completion_nudge_sent"] = true
+						var nudge_msg := {
+							"role": "user",
+							"content": "Verification check: " + reason + " Please call an inspection/verification tool (e.g. navigate_viewport, capture_viewport, validate_tileset_physics, inspect_scene, or get_diagnostics) to verify the result before concluding with [TASK_COMPLETE]."
+						}
+						(_chat_ctx[id]["messages"] as Array).append({"role": "assistant", "content": text})
+						(_chat_ctx[id]["messages"] as Array).append(nudge_msg)
+						_send(id, {"type": "thought", "text": "Verifying pending mutations before concluding task..."})
+						_llm_round(id)
+						return
 					_task_end(id, task_id, "needs_user", reason)
 			else:
 				_task_end(id, task_id, "needs_user", text if text != "" else "Task needs direction before continuing.")
@@ -2879,6 +3086,9 @@ func _on_tool_finished(id: int, tc_id: String, fname: String, result: Dictionary
 	if fname == "invoke_level_designer":
 		cur_agent = "LevelDesigner"
 		ctx["active_agent"] = "LevelDesigner"
+		if tools_bridge != null and tools_bridge.has_method("_unpack_tool_bundle"):
+			tools_bridge._unpack_tool_bundle({"bundle_name": "tilemap"})
+			ctx["tools"] = tools_bridge.list_openai_tools()
 		_chat_ctx[id] = ctx
 		_send(id, {"type": "agent_switch", "agent": "LevelDesigner", "title": "Level Designer"})
 
